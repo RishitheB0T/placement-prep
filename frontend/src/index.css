@@ -1,0 +1,3 @@
+/* Tailwind v4 is configured entirely from CSS: this single import pulls in the
+   framework, and any customisation would go in an @theme block below it. */
+@import "tailwindcss";

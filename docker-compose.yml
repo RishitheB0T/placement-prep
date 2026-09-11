@@ -1,0 +1,22 @@
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: placementprep-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: placementprep
+      POSTGRES_USER: placementprep
+      POSTGRES_PASSWORD: placementprep
+    ports:
+      - "5433:5432"
+    volumes:
+      - placementprep-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U placementprep -d placementprep"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+volumes:
+  placementprep-pgdata:
