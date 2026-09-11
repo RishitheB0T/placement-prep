@@ -7,7 +7,7 @@ import org.testcontainers.postgresql.PostgreSQLContainer;
 import org.testcontainers.utility.DockerImageName;
 
 @TestConfiguration(proxyBeanMethods = false)
-class TestcontainersConfiguration {
+public class TestcontainersConfiguration {
 
 	/**
 	 * Starts a throwaway PostgreSQL container for the duration of the test run.
@@ -22,7 +22,7 @@ class TestcontainersConfiguration {
 	 */
 	@Bean
 	@ServiceConnection
-	PostgreSQLContainer postgresContainer() {
+	public PostgreSQLContainer postgresContainer() {
 		return new PostgreSQLContainer(
 				DockerImageName.parse("pgvector/pgvector:pg16")
 						.asCompatibleSubstituteFor("postgres"));

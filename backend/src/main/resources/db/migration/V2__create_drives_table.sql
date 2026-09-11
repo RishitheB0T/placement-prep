@@ -1,0 +1,13 @@
+CREATE TABLE drives (
+    id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    company_name VARCHAR(255) NOT NULL,
+    role VARCHAR(255) NOT NULL,
+    ctc NUMERIC(10, 2) NOT NULL,
+    tier INTEGER NOT NULL,
+    cgpa_cutoff NUMERIC(4, 2),
+    eligible_branches VARCHAR(255)[],
+    application_deadline TIMESTAMP WITH TIME ZONE,
+    description TEXT,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
