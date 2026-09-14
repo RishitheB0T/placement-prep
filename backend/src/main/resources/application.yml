@@ -7,6 +7,23 @@ spring:
   application:
     name: placementprep
 
+  mvc:
+    # Render errors as RFC 9457 Problem Details, the same shape the security handlers
+    # already produce, so every error from this API looks alike.
+    problemdetails:
+      enabled: true
+
+  web:
+    error:
+      # Spring Boot 4 moved this group from server.error.* to spring.web.error.*. The old
+      # names are deprecated at level "error", meaning they are no longer bound at all
+      # rather than merely discouraged, so the previous spelling silently did nothing.
+      #
+      # DevTools turns stack traces on in development. A stack trace names internal
+      # classes and library versions, so it is never returned to a client.
+      include-stacktrace: never
+      include-message: always
+
   # Connection details come from environment variables so the same build runs
   # locally, in CI, and in production. The defaults match docker-compose.yml.
   datasource:
@@ -34,3 +51,11 @@ management:
   endpoint:
     health:
       show-details: always
+
+jwt:
+  # HMAC-SHA256 needs at least 32 bytes; a shorter value fails fast at startup.
+  # The local default exists only so the project runs out of the box. Any real
+  # deployment must set JWT_SECRET to something random and private.
+  secret: ${JWT_SECRET:local-development-only-secret-change-me-in-production}
+  # 24 hours, in milliseconds.
+  expiration: ${JWT_EXPIRATION:86400000}

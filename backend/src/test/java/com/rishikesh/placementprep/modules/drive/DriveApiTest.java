@@ -19,11 +19,17 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.context.annotation.Import;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 
 import com.rishikesh.placementprep.TestcontainersConfiguration;
+import com.rishikesh.placementprep.modules.auth.model.Role;
+import com.rishikesh.placementprep.modules.auth.model.User;
+import com.rishikesh.placementprep.modules.auth.repository.UserRepository;
+import com.rishikesh.placementprep.modules.auth.service.JwtService;
 import com.rishikesh.placementprep.modules.drive.model.Drive;
 import com.rishikesh.placementprep.modules.drive.repository.DriveRepository;
 
@@ -48,16 +54,36 @@ class DriveApiTest {
     @Autowired
     private DriveRepository driveRepository;
 
+    @Autowired
+    private UserRepository userRepository;
+
+    @Autowired
+    private PasswordEncoder passwordEncoder;
+
+    @Autowired
+    private JwtService jwtService;
+
+    /** Real signed tokens, not mocks, so the JWT filter and rule chain are exercised. */
+    private String studentToken;
+    private String adminToken;
+
     @BeforeEach
     void startFromAnEmptyTable() {
         driveRepository.deleteAll();
+        userRepository.deleteAll();
+
+        createUser("student@college.edu", Role.STUDENT);
+        createUser("tnp@college.edu", Role.TNP_ADMIN);
+
+        studentToken = jwtService.generateToken("student@college.edu", Role.STUDENT);
+        adminToken = jwtService.generateToken("tnp@college.edu", Role.TNP_ADMIN);
     }
 
     // ------------------------------------------------------------------ Create
 
     @Test
     void createReturns201AndPersistsTheDrive() throws Exception {
-        mockMvc.perform(post("/api/drives")
+        mockMvc.perform(post("/api/drives").header(HttpHeaders.AUTHORIZATION, bearer(adminToken))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(driveJson("Zoho", FUTURE)))
                 .andExpect(status().isCreated())
@@ -69,7 +95,7 @@ class DriveApiTest {
 
     @Test
     void createRejectsABlankCompanyName() throws Exception {
-        mockMvc.perform(post("/api/drives")
+        mockMvc.perform(post("/api/drives").header(HttpHeaders.AUTHORIZATION, bearer(adminToken))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(driveJson("", FUTURE)))
                 .andExpect(status().isBadRequest());
@@ -85,7 +111,7 @@ class DriveApiTest {
                  "eligibleBranches":["CSE"],"applicationDeadline":"%s"}
                 """.formatted(FUTURE);
 
-        mockMvc.perform(post("/api/drives")
+        mockMvc.perform(post("/api/drives").header(HttpHeaders.AUTHORIZATION, bearer(adminToken))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(noTier))
                 .andExpect(status().isBadRequest());
@@ -98,14 +124,14 @@ class DriveApiTest {
         seed("Zoho", "7.5", List.of("CSE"), FUTURE);
         seed("Infosys", "6.0", List.of("ECE"), FUTURE);
 
-        mockMvc.perform(get("/api/drives"))
+        mockMvc.perform(get("/api/drives").header(HttpHeaders.AUTHORIZATION, bearer(studentToken)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.length()").value(2));
     }
 
     @Test
     void getByIdReturns404ForAnUnknownId() throws Exception {
-        mockMvc.perform(get("/api/drives/999999"))
+        mockMvc.perform(get("/api/drives/999999").header(HttpHeaders.AUTHORIZATION, bearer(studentToken)))
                 .andExpect(status().isNotFound());
     }
 
@@ -115,7 +141,7 @@ class DriveApiTest {
     void updateReplacesTheStoredFields() throws Exception {
         Drive existing = seed("Zoho", "7.5", List.of("CSE"), FUTURE);
 
-        mockMvc.perform(put("/api/drives/" + existing.getId())
+        mockMvc.perform(put("/api/drives/" + existing.getId()).header(HttpHeaders.AUTHORIZATION, bearer(adminToken))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(driveJson("Zoho Corp", FUTURE)))
                 .andExpect(status().isOk())
@@ -124,7 +150,7 @@ class DriveApiTest {
 
     @Test
     void updateReturns404ForAnUnknownId() throws Exception {
-        mockMvc.perform(put("/api/drives/999999")
+        mockMvc.perform(put("/api/drives/999999").header(HttpHeaders.AUTHORIZATION, bearer(adminToken))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(driveJson("Zoho", FUTURE)))
                 .andExpect(status().isNotFound());
@@ -135,7 +161,7 @@ class DriveApiTest {
     void anExpiredDriveCanStillBeEdited() throws Exception {
         Drive expired = seed("OldDrive", "7.0", List.of("CSE"), PAST);
 
-        mockMvc.perform(put("/api/drives/" + expired.getId())
+        mockMvc.perform(put("/api/drives/" + expired.getId()).header(HttpHeaders.AUTHORIZATION, bearer(adminToken))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(driveJson("OldDrive Renamed", PAST)))
                 .andExpect(status().isOk())
@@ -146,7 +172,7 @@ class DriveApiTest {
     void anInvalidUpdateLeavesTheStoredDriveUntouched() throws Exception {
         Drive existing = seed("Zoho", "7.5", List.of("CSE"), FUTURE);
 
-        mockMvc.perform(put("/api/drives/" + existing.getId())
+        mockMvc.perform(put("/api/drives/" + existing.getId()).header(HttpHeaders.AUTHORIZATION, bearer(adminToken))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(driveJson("", FUTURE)))
                 .andExpect(status().isBadRequest());
@@ -161,16 +187,16 @@ class DriveApiTest {
     void deleteReturns204AndTheDriveIsThenGone() throws Exception {
         Drive existing = seed("Zoho", "7.5", List.of("CSE"), FUTURE);
 
-        mockMvc.perform(delete("/api/drives/" + existing.getId()))
+        mockMvc.perform(delete("/api/drives/" + existing.getId()).header(HttpHeaders.AUTHORIZATION, bearer(adminToken)))
                 .andExpect(status().isNoContent());
 
-        mockMvc.perform(get("/api/drives/" + existing.getId()))
+        mockMvc.perform(get("/api/drives/" + existing.getId()).header(HttpHeaders.AUTHORIZATION, bearer(studentToken)))
                 .andExpect(status().isNotFound());
     }
 
     @Test
     void deleteReturns404ForAnUnknownId() throws Exception {
-        mockMvc.perform(delete("/api/drives/999999"))
+        mockMvc.perform(delete("/api/drives/999999").header(HttpHeaders.AUTHORIZATION, bearer(adminToken)))
                 .andExpect(status().isNotFound());
     }
 
@@ -219,10 +245,23 @@ class DriveApiTest {
                 .andExpect(jsonPath("$.length()").value(1));
     }
 
+    /**
+     * Replaces an older test that checked a cgpa query parameter outside 0-10. That range
+     * is now enforced when the profile is saved, so the interesting case here is a student
+     * who has not filled their profile in at all.
+     */
     @Test
-    void eligibleRejectsACgpaOutsideZeroToTen() throws Exception {
-        mockMvc.perform(eligibleFor("15", "80", "80", 0, "CSE"))
-                .andExpect(status().isBadRequest());
+    void eligibleReturns409WhenTheProfileIsIncomplete() throws Exception {
+        User student = userRepository.findByEmail("student@college.edu").orElseThrow();
+        student.setCgpa(null);
+        student.setBranch(null);
+        student.setTenthPercentage(null);
+        student.setTwelfthPercentage(null);
+        userRepository.save(student);
+
+        mockMvc.perform(get("/api/drives/eligible")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(studentToken)))
+                .andExpect(status().isConflict());
     }
 
 
@@ -284,7 +323,7 @@ class DriveApiTest {
                  "eligibleBranches":["CSE"],"applicationDeadline":"%s"}
                 """.formatted(FUTURE);
 
-        mockMvc.perform(post("/api/drives")
+        mockMvc.perform(post("/api/drives").header(HttpHeaders.AUTHORIZATION, bearer(adminToken))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(noFlag))
                 .andExpect(status().isBadRequest());
@@ -326,7 +365,7 @@ class DriveApiTest {
                  "eligibleBranches":["CSE"],"applicationDeadline":"%s"}
                 """.formatted(FUTURE);
 
-        mockMvc.perform(post("/api/drives")
+        mockMvc.perform(post("/api/drives").header(HttpHeaders.AUTHORIZATION, bearer(adminToken))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(noMax))
                 .andExpect(status().isBadRequest());
@@ -340,7 +379,7 @@ class DriveApiTest {
                  "eligibleBranches":["CSE"],"applicationDeadline":"%s"}
                 """.formatted(FUTURE);
 
-        mockMvc.perform(post("/api/drives")
+        mockMvc.perform(post("/api/drives").header(HttpHeaders.AUTHORIZATION, bearer(adminToken))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(withMax))
                 .andExpect(status().isCreated())
@@ -355,7 +394,7 @@ class DriveApiTest {
                  "eligibleBranches":["CSE"],"applicationDeadline":"%s"}
                 """.formatted(FUTURE);
 
-        mockMvc.perform(post("/api/drives")
+        mockMvc.perform(post("/api/drives").header(HttpHeaders.AUTHORIZATION, bearer(adminToken))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(negative))
                 .andExpect(status().isBadRequest());
@@ -364,14 +403,35 @@ class DriveApiTest {
     // ----------------------------------------------------------------- Helpers
 
 
+    /**
+     * Eligibility now comes from the signed-in student's stored profile rather than query
+     * parameters, so each test writes the profile it wants first and then asks.
+     */
     private MockHttpServletRequestBuilder eligibleFor(String cgpa, String tenth, String twelfth,
                                                      int backlogs, String branch) {
+        User student = userRepository.findByEmail("student@college.edu").orElseThrow();
+        student.setCgpa(new BigDecimal(cgpa));
+        student.setTenthPercentage(new BigDecimal(tenth));
+        student.setTwelfthPercentage(new BigDecimal(twelfth));
+        student.setBacklogs(backlogs);
+        student.setBranch(branch.toUpperCase());
+        userRepository.save(student);
+
         return get("/api/drives/eligible")
-                .param("cgpa", cgpa)
-                .param("tenth", tenth)
-                .param("twelfth", twelfth)
-                .param("backlogs", String.valueOf(backlogs))
-                .param("branch", branch);
+                .header(HttpHeaders.AUTHORIZATION, bearer(studentToken));
+    }
+
+    private static String bearer(String token) {
+        return "Bearer " + token;
+    }
+
+    private void createUser(String email, Role role) {
+        User user = new User();
+        user.setEmail(email);
+        user.setPasswordHash(passwordEncoder.encode("correct-horse-battery"));
+        user.setRole(role);
+        user.setBacklogs(0);
+        userRepository.save(user);
     }
 
     private Drive seed(String company, String cgpaCutoff, List<String> branches, Instant deadline) {
