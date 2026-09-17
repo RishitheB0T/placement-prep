@@ -1,22 +1,30 @@
 # placement-prep
 
 A campus placement preparation platform: the training-and-placement (TNP) cell posts
-placement drives, students see the ones they are eligible for, and AI features help them
-prepare.
+placement drives, students see only the ones they actually qualify for, and AI features
+help them prepare.
 
 ## Status
 
 | Feature | State |
 | --- | --- |
-| Drives board - admin CRUD and student eligibility filter | **Built** (backend only) |
-| Student and TNP-admin login with roles | Planned - Spring Security + JWT |
+| Drives board - TNP CRUD and the student eligibility filter | **Built** |
+| Accounts, login and three-tier roles | **Built** - Spring Security + JWT |
+| Web UI - register, sign in, profile, drives board | **Built** |
 | Resume upload with AI feedback | Planned - background job queue |
 | Q&A over placement notices | Planned - RAG with Spring AI + pgvector |
 | Company-wise AI mock interviews | Planned |
 | Deadline reminders | Planned - scheduled jobs |
 
-The frontend currently contains only a home page that reports backend health. The drives
-board is not yet wired into the UI.
+Not built yet: there is no screen for posting a drive, and no seeded TNP account. See
+[Creating the first TNP account](#creating-the-first-tnp-account).
+
+## Stack
+
+**Backend** - Java 21, Maven, Spring Boot 4.1, Spring Web MVC, Spring Security 7, Bean
+Validation, Spring Data JPA, Flyway, Actuator, Testcontainers.
+**Frontend** - React 19, TypeScript, Vite, Tailwind CSS v4, React Router v7.
+**Infrastructure** - PostgreSQL 16 with the pgvector extension, via Docker Compose.
 
 ## Prerequisites
 
@@ -49,7 +57,8 @@ npm install
 npm run dev
 ```
 
-Open http://localhost:5173 and the home page should read **Backend: UP**.
+Open http://localhost:5173, register with a college address, fill in your profile, and the
+drives board will show what you qualify for.
 
 ### Ports
 
@@ -57,6 +66,23 @@ PostgreSQL is published on host port **5433**, not the usual 5432, and the backe
 on **8081**, not 8080. Both defaults avoid clashing with software that commonly holds those
 ports. Override with the `DB_URL`, `DB_USERNAME`, `DB_PASSWORD` and `SERVER_PORT`
 environment variables; the container itself still uses 5432 internally.
+
+### Configuration
+
+Nothing secret is committed. Every value below has a local default that matches
+`docker-compose.yml`, and is overridden by an environment variable in a real deployment.
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `DB_URL` | `jdbc:postgresql://localhost:5433/placementprep` | database connection |
+| `DB_USERNAME` / `DB_PASSWORD` | `placementprep` | database credentials |
+| `SERVER_PORT` | `8081` | backend port |
+| `JWT_SECRET` | a local development placeholder | token signing key |
+| `JWT_EXPIRATION` | `86400000` (24 hours) | token lifetime in milliseconds |
+
+`JWT_SECRET` **must** be set to a random private value anywhere real. It is validated at
+startup: shorter than 32 characters and the application refuses to boot, naming the
+property, rather than failing later inside the signing library.
 
 ## Commands
 
@@ -73,43 +99,104 @@ environment variables; the container itself still uses 5432 internally.
 
 On macOS or Linux use `./mvnw` instead of `.\mvnw.cmd`.
 
-## API - drives
+## Authentication and roles
 
-Base path `/api/drives`.
+Login exchanges an email and password for a **JSON Web Token (JWT)**, which the client
+then sends on every request as `Authorization: Bearer <token>`.
+
+The token's payload is signed, not encrypted - anyone holding one can read what is inside
+it, so nothing confidential goes in a claim. The signature makes it tamper-evident: a
+student can read their own role but cannot change it without invalidating the token.
+
+The role travels in the token purely as a convenience for the client. **The server never
+trusts it** and re-reads the real role from the database on every request, so a revoked
+privilege takes effect on the next call rather than whenever the token happens to expire.
+
+### The three roles
+
+| Role | May do |
+| --- | --- |
+| `STUDENT` | read the board, see their own eligible drives, edit their own profile |
+| `TNP_COORDINATOR` | everything a student may, plus create, edit and delete drives |
+| `TNP_PIC` | everything a coordinator may, plus promote a student to coordinator |
+
+Registration always creates a `STUDENT`. There is deliberately no role field on the
+registration request - if clients could choose, anyone could sign up as staff and publish
+fake drives. Coordinators are promoted from existing students by the person in charge
+(PIC), and a PIC is seeded directly into the database, because anyone who could grant that
+role through the API would already need to hold it.
+
+### College addresses only
+
+Registration is restricted to college email addresses of the form `*@*.nits.ac.in`. A
+department subdomain is required, so `name@cse.nits.ac.in` is accepted and the bare
+`name@nits.ac.in` is not. The check requires a dot immediately before `nits.ac.in`, which
+is what stops a lookalike domain such as `notnits.ac.in` from passing a naive suffix test.
+
+### Creating the first TNP account
+
+No TNP account is seeded, so a fresh database has no one who can post a drive. Register
+normally, then promote yourself directly:
+
+```sql
+UPDATE users SET role = 'TNP_PIC' WHERE email = 'you@cse.nits.ac.in';
+```
+
+From then on that account can promote others through the API.
+
+## API
+
+All paths require `Authorization: Bearer <token>` unless marked public.
+
+### Accounts
 
 | Method | Path | Purpose | Success |
 | --- | --- | --- | --- |
-| `POST` | `/api/drives` | Admin posts a drive | `201` |
-| `GET` | `/api/drives` | All drives, newest first | `200` |
-| `GET` | `/api/drives/eligible` | Drives a given student may apply for | `200` |
-| `GET` | `/api/drives/{id}` | One drive | `200` / `404` |
-| `PUT` | `/api/drives/{id}` | Replace a drive | `200` / `404` |
-| `DELETE` | `/api/drives/{id}` | Remove a drive | `204` / `404` |
+| `POST` | `/api/auth/register` | create a student account, returns a token | `201` / `409` |
+| `POST` | `/api/auth/login` | exchange credentials for a token | `200` / `401` |
+| `GET` | `/api/users/me` | the signed-in user and their profile | `200` |
+| `PUT` | `/api/users/me` | replace my academic details | `200` |
+| `POST` | `/api/users/{id}/promote` | make a student a coordinator - **PIC only** | `200` / `404` / `409` |
 
-A request that fails validation returns `400` and changes nothing.
+`/api/auth/register` and `/api/auth/login` are public, as is `/actuator/health`.
 
-### Drive fields
+A failed login is a flat `401` with no detail. Distinguishing "no such account" from
+"wrong password" would turn the endpoint into a way to discover which addresses are
+registered.
 
-| Field | Required | Notes |
-| --- | --- | --- |
-| `companyName`, `role` | yes | non-blank |
-| `ctc` | yes | positive |
-| `tier` | yes | |
-| `cgpaCutoff` | yes | minimum CGPA |
-| `tenthCutoff`, `twelfthCutoff` | no | minimum percentage, 0-100. Omit to set no requirement |
-| `backlogsAllowed` | yes | whether students with active backlogs may apply |
-| `maxBacklogs` | only when `backlogsAllowed` is true | how many are tolerated; omit for no ceiling |
-| `eligibleBranches` | yes | non-empty list, e.g. `["CSE","ECE"]` |
-| `applicationDeadline` | yes | ISO-8601 instant |
-| `description` | no | free text |
+### Profile fields
 
-### Eligibility filter
+Sent to `PUT /api/users/me`. All are required, and the eligibility filter needs them
+before it can return anything.
 
-```
-GET /api/drives/eligible?cgpa=8.5&tenth=80&twelfth=80&backlogs=0&branch=CSE
-```
+| Field | Notes |
+| --- | --- |
+| `cgpa` | 0-10 |
+| `branch` | e.g. `CSE`; stored upper-cased |
+| `tenthPercentage`, `twelfthPercentage` | 0-100 |
+| `backlogs` | active backlogs; 0 or more |
 
-All five parameters are required. A drive is returned when **every** condition holds:
+The response also carries a computed `complete` boolean, so the UI can prompt a student to
+finish their profile without re-implementing the same checks.
+
+### Drives
+
+Base path `/api/drives`.
+
+| Method | Path | Purpose | Who | Success |
+| --- | --- | --- | --- | --- |
+| `GET` | `/api/drives` | all drives, newest first | any signed-in user | `200` |
+| `GET` | `/api/drives/eligible` | drives **I** qualify for | any signed-in user | `200` / `409` |
+| `GET` | `/api/drives/{id}` | one drive | any signed-in user | `200` / `404` |
+| `POST` | `/api/drives` | post a drive | PIC, coordinator | `201` |
+| `PUT` | `/api/drives/{id}` | replace a drive | PIC, coordinator | `200` / `404` |
+| `DELETE` | `/api/drives/{id}` | remove a drive | PIC, coordinator | `204` / `404` |
+
+`/api/drives/eligible` takes no parameters. It reads the marks from the signed-in user's
+own profile, so one student can never enumerate what another would qualify for. It answers
+`409` when the caller's profile is not filled in yet.
+
+A drive is returned when **every** condition holds:
 
 - the student meets `cgpaCutoff`, `tenthCutoff` and `twelfthCutoff` - a cutoff left unset
   on the drive imposes no requirement
@@ -120,10 +207,26 @@ All five parameters are required. A drive is returned when **every** condition h
 
 Results are ordered by deadline, soonest first.
 
-Example:
+### Drive fields
+
+| Field | Required | Notes |
+| --- | --- | --- |
+| `companyName`, `role` | yes | non-blank |
+| `ctc` | yes | positive, in rupees per annum |
+| `tier` | yes | |
+| `cgpaCutoff` | yes | minimum CGPA |
+| `tenthCutoff`, `twelfthCutoff` | no | minimum percentage, 0-100. Omit to set no requirement |
+| `backlogsAllowed` | yes | whether students with active backlogs may apply |
+| `maxBacklogs` | only when `backlogsAllowed` is true | how many are tolerated; omit for no ceiling |
+| `eligibleBranches` | yes | non-empty list, e.g. `["CSE","ECE"]` |
+| `applicationDeadline` | yes | ISO-8601 instant |
+| `description` | no | free text |
+
+Example, as a coordinator:
 
 ```powershell
-curl.exe -X POST http://localhost:8081/api/drives -H "Content-Type: application/json" -d '{
+curl.exe -X POST http://localhost:8081/api/drives `
+  -H "Authorization: Bearer $token" -H "Content-Type: application/json" -d '{
   \"companyName\": \"Zoho Corporation\", \"role\": \"Member Technical Staff\",
   \"ctc\": 900000, \"tier\": 1, \"cgpaCutoff\": 7.5,
   \"tenthCutoff\": 75.0, \"twelfthCutoff\": 70.0,
@@ -132,16 +235,36 @@ curl.exe -X POST http://localhost:8081/api/drives -H "Content-Type: application/
   \"applicationDeadline\": \"2026-12-20T18:00:00Z\"}'
 ```
 
+### Errors
+
+Every error is [RFC 9457 Problem Details](https://www.rfc-editor.org/rfc/rfc9457) JSON, so
+one client-side handler covers the whole API. A body-validation failure also names the
+offending fields:
+
+```json
+{
+  "title": "Bad Request",
+  "status": 400,
+  "detail": "Invalid request content.",
+  "instance": "/api/auth/register",
+  "errors": { "email": "Registration is open only to college email addresses ending in .nits.ac.in" }
+}
+```
+
+The rejected value is deliberately never echoed back, since on a registration form the
+submitted body contains a password.
+
 ## Layout
 
 ```
 placement-prep/
 ├── backend/                Spring Boot API (Java 21, Maven)
 │   └── src/main/java/com/rishikesh/placementprep/
-│       ├── common/             Shared building blocks
-│       ├── infrastructure/     Database config, storage, schedulers, external clients
+│       ├── common/             Shared building blocks and validation error handling
+│       ├── infrastructure/
+│       │   └── security/       Filter chain, JWT filter, rule config, error handlers
 │       └── modules/
-│           ├── auth/           Accounts, login, roles, JWT            (planned)
+│           ├── auth/           Accounts, login, roles, JWT            (built)
 │           ├── drive/          Placement drives and eligibility       (built)
 │           │   ├── controller/ HTTP endpoints
 │           │   ├── service/    Business logic
@@ -156,9 +279,14 @@ placement-prep/
 │   └── src/
 │       ├── api/                Functions that call the backend
 │       ├── components/         Reusable presentational pieces
-│       └── pages/              One file per route
+│       └── pages/              Login, Register, Profile, Drives
 └── docker-compose.yml      PostgreSQL with the pgvector extension
 ```
+
+Every module gets the same five sub-packages as it grows. Controllers accept and return
+DTOs, never entities, so the database schema and the public API stay free to change
+independently. Services return `Optional` or `boolean` to mean "not found" and never
+import a web type, which keeps them callable from a scheduled job or a queue consumer.
 
 ## Database
 
@@ -173,6 +301,9 @@ Flyway stores a checksum of each file and refuses to start if one changes.
 | `V2__create_drives_table.sql` | the `drives` table |
 | `V3__add_eligibility_criteria_to_drives.sql` | 10th and 12th cutoffs, backlogs allowed flag |
 | `V4__add_max_backlogs_to_drives.sql` | backlog ceiling |
+| `V5__create_users_table.sql` | the `users` table |
+| `V6__add_student_profile_to_users.sql` | CGPA, branch, school percentages, backlogs |
+| `V7__update_user_roles.sql` | splits the single TNP role into coordinator and PIC |
 
 ## Testing
 
@@ -181,14 +312,23 @@ cd backend
 .\mvnw.cmd test
 ```
 
-Tests run against a real PostgreSQL container started by Testcontainers using the
-`pgvector/pgvector:pg16` image, so **Docker must be running**. Nothing is mocked and no
-test touches the development database. New integration tests should import
-`TestcontainersConfiguration` rather than pointing at a hand-managed database.
+71 integration tests. They run against a real PostgreSQL container started by
+Testcontainers using the `pgvector/pgvector:pg16` image, so **Docker must be running**.
+Nothing is mocked and no test touches the development database. New integration tests
+should import `TestcontainersConfiguration` rather than pointing at a hand-managed
+database.
+
+The suite generates real signed tokens rather than stubbing the security context, so the
+JWT filter and the authorisation rules are genuinely exercised - including the cases that
+matter most, such as a student being refused a write and a coordinator being refused a
+promotion.
 
 ## Notes
 
 - The frontend dev server proxies `/api` and `/actuator` to the backend, so there is no
   CORS configuration anywhere.
-- No credentials are committed. The database connection is read from environment
-  variables with local defaults that match `docker-compose.yml`.
+- The token is held in `localStorage`. That is readable by any script on the page, so it
+  trades some XSS exposure for not needing CSRF protection on a cookie; a production
+  deployment would likely move to an httpOnly cookie and add CSRF tokens.
+- Sessions are stateless - no `HttpSession` is ever created, so any instance can serve any
+  request without shared session storage.
