@@ -15,6 +15,18 @@ public enum Role {
     /** A student browsing drives they are eligible for. */
     STUDENT,
 
-    /** A training-and-placement cell member who posts and manages drives. */
-    TNP_ADMIN
+    /**
+     * A training-and-placement cell coordinator. Posts and manages drives, but cannot
+     * change anybody's role - staffing the cell is the person-in-charge's decision.
+     */
+    TNP_COORDINATOR,
+
+    /**
+     * The training-and-placement cell's person in charge. Everything a coordinator can
+     * do, plus promoting students into the cell.
+     *
+     * <p>There is no self-service route to this role: accounts are seeded directly into
+     * the database, because whoever could grant it through the API would already need it.
+     */
+    TNP_PIC
 }

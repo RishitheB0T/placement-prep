@@ -63,9 +63,20 @@ public class SecurityConfig {
                     .requestMatchers(HttpMethod.GET, "/api/drives", "/api/drives/**").authenticated()
 
                     // Changing the board is the training-and-placement cell's job only.
-                    .requestMatchers(HttpMethod.POST, "/api/drives", "/api/drives/**").hasRole("TNP_ADMIN")
-                    .requestMatchers(HttpMethod.PUT, "/api/drives/**").hasRole("TNP_ADMIN")
-                    .requestMatchers(HttpMethod.DELETE, "/api/drives/**").hasRole("TNP_ADMIN")
+                    // Both cell roles do it: coordinators run the board day to day, and
+                    // the person in charge can do anything a coordinator can.
+                    .requestMatchers(HttpMethod.POST, "/api/drives", "/api/drives/**")
+                            .hasAnyRole("TNP_PIC", "TNP_COORDINATOR")
+                    .requestMatchers(HttpMethod.PUT, "/api/drives/**")
+                            .hasAnyRole("TNP_PIC", "TNP_COORDINATOR")
+                    .requestMatchers(HttpMethod.DELETE, "/api/drives/**")
+                            .hasAnyRole("TNP_PIC", "TNP_COORDINATOR")
+
+                    // Staffing the cell is the person in charge's decision alone, so this
+                    // one stays singular. A coordinator calling it gets a 403, which is
+                    // what stops the cell from growing itself without oversight.
+                    // The * matches exactly one path segment, so it cannot span an id.
+                    .requestMatchers(HttpMethod.POST, "/api/users/*/promote").hasRole("TNP_PIC")
 
                     // Default deny. Anything added later is locked until a rule is written
                     // for it, which fails safe rather than silently exposing a new endpoint.

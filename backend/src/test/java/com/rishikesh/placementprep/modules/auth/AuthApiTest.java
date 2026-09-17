@@ -5,6 +5,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -69,13 +70,13 @@ class AuthApiTest {
     void registerReturns201AndAToken() throws Exception {
         mockMvc.perform(post("/api/auth/register")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(credentials("student@college.edu", "a-good-password")))
+                        .content(credentials("student@cse.nits.ac.in", "a-good-password")))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.token").isNotEmpty())
-                .andExpect(jsonPath("$.email").value("student@college.edu"))
+                .andExpect(jsonPath("$.email").value("student@cse.nits.ac.in"))
                 .andExpect(jsonPath("$.role").value("STUDENT"));
 
-        assertThat(userRepository.existsByEmail("student@college.edu")).isTrue();
+        assertThat(userRepository.existsByEmail("student@cse.nits.ac.in")).isTrue();
     }
 
     /** The password must never be stored in a form anyone could read back. */
@@ -83,10 +84,10 @@ class AuthApiTest {
     void registerStoresAHashRatherThanThePassword() throws Exception {
         mockMvc.perform(post("/api/auth/register")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(credentials("student@college.edu", "a-good-password")))
+                        .content(credentials("student@cse.nits.ac.in", "a-good-password")))
                 .andExpect(status().isCreated());
 
-        String stored = userRepository.findByEmail("student@college.edu").orElseThrow()
+        String stored = userRepository.findByEmail("student@cse.nits.ac.in").orElseThrow()
                 .getPasswordHash();
 
         assertThat(stored).isNotEqualTo("a-good-password");
@@ -101,7 +102,7 @@ class AuthApiTest {
     @Test
     void registerIgnoresAnyRoleSuppliedByTheClient() throws Exception {
         String tryingToBeAdmin = """
-                {"email":"sneaky@college.edu","password":"a-good-password","role":"TNP_ADMIN"}
+                {"email":"sneaky@cse.nits.ac.in","password":"a-good-password","role":"TNP_PIC"}
                 """;
 
         mockMvc.perform(post("/api/auth/register")
@@ -110,17 +111,17 @@ class AuthApiTest {
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.role").value("STUDENT"));
 
-        assertThat(userRepository.findByEmail("sneaky@college.edu").orElseThrow().getRole())
+        assertThat(userRepository.findByEmail("sneaky@cse.nits.ac.in").orElseThrow().getRole())
                 .isEqualTo(Role.STUDENT);
     }
 
     @Test
     void registerRejectsADuplicateEmailWith409() throws Exception {
-        registerStudent("student@college.edu", "a-good-password");
+        registerStudent("student@cse.nits.ac.in", "a-good-password");
 
         mockMvc.perform(post("/api/auth/register")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(credentials("student@college.edu", "another-password")))
+                        .content(credentials("student@cse.nits.ac.in", "another-password")))
                 .andExpect(status().isConflict());
 
         assertThat(userRepository.count()).isEqualTo(1);
@@ -129,11 +130,11 @@ class AuthApiTest {
     /** Registering with a different casing must not create a second account. */
     @Test
     void registerTreatsEmailCaseInsensitively() throws Exception {
-        registerStudent("student@college.edu", "a-good-password");
+        registerStudent("student@cse.nits.ac.in", "a-good-password");
 
         mockMvc.perform(post("/api/auth/register")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(credentials("Student@College.edu", "another-password")))
+                        .content(credentials("Student@CSE.Nits.AC.in", "another-password")))
                 .andExpect(status().isConflict());
     }
 
@@ -146,10 +147,94 @@ class AuthApiTest {
     }
 
     @Test
+    void registerRejectsAnEmailOutsideTheCollegeDomain() throws Exception {
+        mockMvc.perform(post("/api/auth/register")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(credentials("someone@gmail.com", "a-good-password")))
+                .andExpect(status().isBadRequest());
+
+        assertThat(userRepository.existsByEmail("someone@gmail.com")).isFalse();
+    }
+
+    /**
+     * A 400 has to say which field was wrong, otherwise the form can only tell the user
+     * that something failed. Without the advice in common, all of this is discarded and
+     * the body says nothing beyond "Invalid request content.".
+     */
+    @Test
+    void aRejectedFieldIsNamedInTheResponse() throws Exception {
+        mockMvc.perform(post("/api/auth/register")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(credentials("someone@gmail.com", "a-good-password")))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.status").value(400))
+                .andExpect(jsonPath("$.errors.email").value(
+                        "Registration is open only to college email addresses ending in .nits.ac.in"));
+    }
+
+    /** The message must never quote back what was submitted, because that includes it. */
+    @Test
+    void aRejectedPasswordIsNamedWithoutEchoingIt() throws Exception {
+        mockMvc.perform(post("/api/auth/register")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(credentials("student@cse.nits.ac.in", "short")))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.errors.password").exists())
+                .andExpect(content().string(org.hamcrest.Matchers.not(
+                        org.hamcrest.Matchers.containsString("short"))));
+    }
+
+    /** Every college address sits under a department subdomain, so this is the shape. */
+    @Test
+    void registerAcceptsADepartmentalSubdomain() throws Exception {
+        mockMvc.perform(post("/api/auth/register")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(credentials("learner@ece.nits.ac.in", "a-good-password")))
+                .andExpect(status().isCreated());
+    }
+
+    /**
+     * The bare domain is rejected because the college does not issue addresses in that
+     * shape. Accepting it would only widen what the check lets through, for no real
+     * address it would ever admit.
+     */
+    @Test
+    void registerRejectsTheBareCollegeDomain() throws Exception {
+        mockMvc.perform(post("/api/auth/register")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(credentials("someone@nits.ac.in", "a-good-password")))
+                .andExpect(status().isBadRequest());
+
+        assertThat(userRepository.existsByEmail("someone@nits.ac.in")).isFalse();
+    }
+
+    /**
+     * The regex requires a dot immediately before nits.ac.in. Without that boundary a
+     * domain someone else could register, such as notnits.ac.in, would end with the right
+     * characters and be accepted.
+     */
+    @Test
+    void registerRejectsALookalikeDomain() throws Exception {
+        mockMvc.perform(post("/api/auth/register")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(credentials("attacker@notnits.ac.in", "a-good-password")))
+                .andExpect(status().isBadRequest());
+    }
+
+    /** A suffix check anchored only at the front would let this through. */
+    @Test
+    void registerRejectsADomainThatMerelyStartsWithTheCollegeDomain() throws Exception {
+        mockMvc.perform(post("/api/auth/register")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(credentials("attacker@nits.ac.in.example.com", "a-good-password")))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
     void registerRejectsAShortPassword() throws Exception {
         mockMvc.perform(post("/api/auth/register")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(credentials("student@college.edu", "short")))
+                        .content(credentials("student@cse.nits.ac.in", "short")))
                 .andExpect(status().isBadRequest());
     }
 
@@ -157,11 +242,11 @@ class AuthApiTest {
 
     @Test
     void loginReturnsATokenForCorrectCredentials() throws Exception {
-        registerStudent("student@college.edu", "a-good-password");
+        registerStudent("student@cse.nits.ac.in", "a-good-password");
 
         mockMvc.perform(post("/api/auth/login")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(credentials("student@college.edu", "a-good-password")))
+                        .content(credentials("student@cse.nits.ac.in", "a-good-password")))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.token").isNotEmpty())
                 .andExpect(jsonPath("$.role").value("STUDENT"));
@@ -169,11 +254,11 @@ class AuthApiTest {
 
     @Test
     void loginRejectsAWrongPasswordWith401() throws Exception {
-        registerStudent("student@college.edu", "a-good-password");
+        registerStudent("student@cse.nits.ac.in", "a-good-password");
 
         mockMvc.perform(post("/api/auth/login")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(credentials("student@college.edu", "wrong-password")))
+                        .content(credentials("student@cse.nits.ac.in", "wrong-password")))
                 .andExpect(status().isUnauthorized());
     }
 
@@ -185,7 +270,7 @@ class AuthApiTest {
     void loginRejectsAnUnknownAccountWithTheSame401() throws Exception {
         mockMvc.perform(post("/api/auth/login")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(credentials("nobody@college.edu", "a-good-password")))
+                        .content(credentials("nobody@cse.nits.ac.in", "a-good-password")))
                 .andExpect(status().isUnauthorized());
     }
 
@@ -199,7 +284,7 @@ class AuthApiTest {
 
     @Test
     void readingDrivesWithAStudentTokenIsAllowed() throws Exception {
-        String token = tokenFor("student@college.edu", Role.STUDENT);
+        String token = tokenFor("student@cse.nits.ac.in", Role.STUDENT);
 
         mockMvc.perform(get("/api/drives").header(HttpHeaders.AUTHORIZATION, "Bearer " + token))
                 .andExpect(status().isOk());
@@ -208,7 +293,7 @@ class AuthApiTest {
     /** The rule that matters: students may look, but may not publish. */
     @Test
     void aStudentCannotCreateADrive() throws Exception {
-        String token = tokenFor("student@college.edu", Role.STUDENT);
+        String token = tokenFor("student@cse.nits.ac.in", Role.STUDENT);
 
         mockMvc.perform(post("/api/drives")
                         .header(HttpHeaders.AUTHORIZATION, "Bearer " + token)
@@ -221,7 +306,7 @@ class AuthApiTest {
 
     @Test
     void aStudentCannotDeleteADrive() throws Exception {
-        String token = tokenFor("student@college.edu", Role.STUDENT);
+        String token = tokenFor("student@cse.nits.ac.in", Role.STUDENT);
 
         mockMvc.perform(delete("/api/drives/1")
                         .header(HttpHeaders.AUTHORIZATION, "Bearer " + token))
@@ -230,7 +315,7 @@ class AuthApiTest {
 
     @Test
     void anAdminCanCreateADrive() throws Exception {
-        String token = tokenFor("tnp@college.edu", Role.TNP_ADMIN);
+        String token = tokenFor("tnp@tnp.nits.ac.in", Role.TNP_PIC);
 
         mockMvc.perform(post("/api/drives")
                         .header(HttpHeaders.AUTHORIZATION, "Bearer " + token)
@@ -256,7 +341,7 @@ class AuthApiTest {
     void aTokenSignedWithADifferentSecretIsRejected() throws Exception {
         JwtService attacker = new JwtService(new JwtProperties(
                 "a-totally-different-secret-that-is-long-enough-to-be-valid", 86400000L));
-        String forged = attacker.generateToken("tnp@college.edu", Role.TNP_ADMIN);
+        String forged = attacker.generateToken("tnp@tnp.nits.ac.in", Role.TNP_PIC);
 
         mockMvc.perform(get("/api/drives").header(HttpHeaders.AUTHORIZATION, "Bearer " + forged))
                 .andExpect(status().isUnauthorized());
@@ -264,11 +349,11 @@ class AuthApiTest {
 
     @Test
     void anExpiredTokenIsRejected() throws Exception {
-        createUser("student@college.edu", Role.STUDENT);
+        createUser("student@cse.nits.ac.in", Role.STUDENT);
         // A negative lifetime produces a token that expired before it was even issued.
         JwtService expiring = new JwtService(new JwtProperties(
                 "local-development-only-secret-change-me-in-production", -1000L));
-        String expired = expiring.generateToken("student@college.edu", Role.STUDENT);
+        String expired = expiring.generateToken("student@cse.nits.ac.in", Role.STUDENT);
 
         mockMvc.perform(get("/api/drives").header(HttpHeaders.AUTHORIZATION, "Bearer " + expired))
                 .andExpect(status().isUnauthorized());
@@ -286,11 +371,11 @@ class AuthApiTest {
 
     @Test
     void meReturnsTheSignedInUserAndNoPassword() throws Exception {
-        String token = tokenFor("student@college.edu", Role.STUDENT);
+        String token = tokenFor("student@cse.nits.ac.in", Role.STUDENT);
 
         mockMvc.perform(get("/api/users/me").header(HttpHeaders.AUTHORIZATION, "Bearer " + token))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.email").value("student@college.edu"))
+                .andExpect(jsonPath("$.email").value("student@cse.nits.ac.in"))
                 .andExpect(jsonPath("$.role").value("STUDENT"))
                 .andExpect(jsonPath("$.complete").value(false))
                 .andExpect(jsonPath("$.passwordHash").doesNotExist())
@@ -305,7 +390,7 @@ class AuthApiTest {
 
     @Test
     void updatingTheProfileMakesItComplete() throws Exception {
-        String token = tokenFor("student@college.edu", Role.STUDENT);
+        String token = tokenFor("student@cse.nits.ac.in", Role.STUDENT);
 
         mockMvc.perform(put("/api/users/me")
                         .header(HttpHeaders.AUTHORIZATION, "Bearer " + token)
@@ -320,7 +405,7 @@ class AuthApiTest {
 
     @Test
     void updatingTheProfileRejectsACgpaAboveTen() throws Exception {
-        String token = tokenFor("student@college.edu", Role.STUDENT);
+        String token = tokenFor("student@cse.nits.ac.in", Role.STUDENT);
 
         mockMvc.perform(put("/api/users/me")
                         .header(HttpHeaders.AUTHORIZATION, "Bearer " + token)
@@ -332,11 +417,11 @@ class AuthApiTest {
     /** A profile update must not be a back door to becoming an administrator. */
     @Test
     void updatingTheProfileCannotChangeTheRole() throws Exception {
-        String token = tokenFor("student@college.edu", Role.STUDENT);
+        String token = tokenFor("student@cse.nits.ac.in", Role.STUDENT);
 
         String withRole = """
                 {"cgpa":8.5,"branch":"CSE","tenthPercentage":80,"twelfthPercentage":75,
-                 "backlogs":0,"role":"TNP_ADMIN"}
+                 "backlogs":0,"role":"TNP_PIC"}
                 """;
 
         mockMvc.perform(put("/api/users/me")
@@ -346,15 +431,15 @@ class AuthApiTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.role").value("STUDENT"));
 
-        assertThat(userRepository.findByEmail("student@college.edu").orElseThrow().getRole())
+        assertThat(userRepository.findByEmail("student@cse.nits.ac.in").orElseThrow().getRole())
                 .isEqualTo(Role.STUDENT);
     }
 
     /** One student must never be able to read or write another student's profile. */
     @Test
     void theProfileEndpointOnlyEverTouchesTheCallersOwnAccount() throws Exception {
-        createUser("other@college.edu", Role.STUDENT);
-        String token = tokenFor("student@college.edu", Role.STUDENT);
+        createUser("other@cse.nits.ac.in", Role.STUDENT);
+        String token = tokenFor("student@cse.nits.ac.in", Role.STUDENT);
 
         mockMvc.perform(put("/api/users/me")
                         .header(HttpHeaders.AUTHORIZATION, "Bearer " + token)
@@ -362,8 +447,92 @@ class AuthApiTest {
                         .content(profileJson("9.1", "ECE", "90", "88", 1)))
                 .andExpect(status().isOk());
 
-        assertThat(userRepository.findByEmail("other@college.edu").orElseThrow().getCgpa())
+        assertThat(userRepository.findByEmail("other@cse.nits.ac.in").orElseThrow().getCgpa())
                 .isNull();
+    }
+
+    // --------------------------------------------------------------- Promotion
+
+    @Test
+    void thePersonInChargeCanPromoteAStudentToCoordinator() throws Exception {
+        String pic = tokenFor("pic@tnp.nits.ac.in", Role.TNP_PIC);
+        Long targetId = idOf("target@cse.nits.ac.in", Role.STUDENT);
+
+        mockMvc.perform(post("/api/users/" + targetId + "/promote")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + pic))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.role").value("TNP_COORDINATOR"));
+
+        assertThat(userRepository.findById(targetId).orElseThrow().getRole())
+                .isEqualTo(Role.TNP_COORDINATOR);
+    }
+
+    /** The whole point of splitting the roles: the cell cannot staff itself. */
+    @Test
+    void aCoordinatorCannotPromoteAnybody() throws Exception {
+        String coordinator = tokenFor("coordinator@tnp.nits.ac.in", Role.TNP_COORDINATOR);
+        Long targetId = idOf("target@cse.nits.ac.in", Role.STUDENT);
+
+        mockMvc.perform(post("/api/users/" + targetId + "/promote")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + coordinator))
+                .andExpect(status().isForbidden());
+
+        assertThat(userRepository.findById(targetId).orElseThrow().getRole())
+                .isEqualTo(Role.STUDENT);
+    }
+
+    @Test
+    void aStudentCannotPromoteThemselves() throws Exception {
+        String student = tokenFor("student@cse.nits.ac.in", Role.STUDENT);
+        Long selfId = userRepository.findByEmail("student@cse.nits.ac.in").orElseThrow().getId();
+
+        mockMvc.perform(post("/api/users/" + selfId + "/promote")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + student))
+                .andExpect(status().isForbidden());
+
+        assertThat(userRepository.findById(selfId).orElseThrow().getRole())
+                .isEqualTo(Role.STUDENT);
+    }
+
+    @Test
+    void promotingWithoutATokenIs401() throws Exception {
+        Long targetId = idOf("target@cse.nits.ac.in", Role.STUDENT);
+
+        mockMvc.perform(post("/api/users/" + targetId + "/promote"))
+                .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void promotingAnUnknownAccountIs404() throws Exception {
+        String pic = tokenFor("pic@tnp.nits.ac.in", Role.TNP_PIC);
+
+        mockMvc.perform(post("/api/users/999999/promote")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + pic))
+                .andExpect(status().isNotFound());
+    }
+
+    @Test
+    void promotingSomebodyAlreadyACoordinatorIs409() throws Exception {
+        String pic = tokenFor("pic@tnp.nits.ac.in", Role.TNP_PIC);
+        Long targetId = idOf("coordinator@tnp.nits.ac.in", Role.TNP_COORDINATOR);
+
+        mockMvc.perform(post("/api/users/" + targetId + "/promote")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + pic))
+                .andExpect(status().isConflict());
+    }
+
+    /** Promotion must never be usable as a back door to demote the person in charge. */
+    @Test
+    void promotingThePersonInChargeIs409AndLeavesTheRoleAlone() throws Exception {
+        String pic = tokenFor("pic@tnp.nits.ac.in", Role.TNP_PIC);
+        Long otherPicId = idOf("other-pic@tnp.nits.ac.in", Role.TNP_PIC);
+
+        mockMvc.perform(post("/api/users/" + otherPicId + "/promote")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + pic))
+                .andExpect(status().isConflict());
+
+        assertThat(userRepository.findById(otherPicId).orElseThrow().getRole())
+                .isEqualTo(Role.TNP_PIC);
     }
 
     // ----------------------------------------------------------------- Helpers
@@ -408,5 +577,11 @@ class AuthApiTest {
     private String tokenFor(String email, Role role) {
         createUser(email, role);
         return jwtService.generateToken(email, role);
+    }
+
+    /** Creates an account and returns its generated id, for endpoints that take one. */
+    private Long idOf(String email, Role role) {
+        createUser(email, role);
+        return userRepository.findByEmail(email).orElseThrow().getId();
     }
 }

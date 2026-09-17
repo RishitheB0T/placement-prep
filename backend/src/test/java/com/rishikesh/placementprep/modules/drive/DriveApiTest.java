@@ -66,17 +66,20 @@ class DriveApiTest {
     /** Real signed tokens, not mocks, so the JWT filter and rule chain are exercised. */
     private String studentToken;
     private String adminToken;
+    private String coordinatorToken;
 
     @BeforeEach
     void startFromAnEmptyTable() {
         driveRepository.deleteAll();
         userRepository.deleteAll();
 
-        createUser("student@college.edu", Role.STUDENT);
-        createUser("tnp@college.edu", Role.TNP_ADMIN);
+        createUser("student@cse.nits.ac.in", Role.STUDENT);
+        createUser("pic@tnp.nits.ac.in", Role.TNP_PIC);
+        createUser("coordinator@tnp.nits.ac.in", Role.TNP_COORDINATOR);
 
-        studentToken = jwtService.generateToken("student@college.edu", Role.STUDENT);
-        adminToken = jwtService.generateToken("tnp@college.edu", Role.TNP_ADMIN);
+        studentToken = jwtService.generateToken("student@cse.nits.ac.in", Role.STUDENT);
+        adminToken = jwtService.generateToken("pic@tnp.nits.ac.in", Role.TNP_PIC);
+        coordinatorToken = jwtService.generateToken("coordinator@tnp.nits.ac.in", Role.TNP_COORDINATOR);
     }
 
     // ------------------------------------------------------------------ Create
@@ -89,6 +92,17 @@ class DriveApiTest {
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.id").isNumber())
                 .andExpect(jsonPath("$.companyName").value("Zoho"));
+
+        assertThat(driveRepository.count()).isEqualTo(1);
+    }
+
+    /** Coordinators run the board day to day, so they get the same write access. */
+    @Test
+    void createIsAllowedForACoordinatorToo() throws Exception {
+        mockMvc.perform(post("/api/drives").header(HttpHeaders.AUTHORIZATION, bearer(coordinatorToken))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(driveJson("Freshworks", FUTURE)))
+                .andExpect(status().isCreated());
 
         assertThat(driveRepository.count()).isEqualTo(1);
     }
@@ -252,7 +266,7 @@ class DriveApiTest {
      */
     @Test
     void eligibleReturns409WhenTheProfileIsIncomplete() throws Exception {
-        User student = userRepository.findByEmail("student@college.edu").orElseThrow();
+        User student = userRepository.findByEmail("student@cse.nits.ac.in").orElseThrow();
         student.setCgpa(null);
         student.setBranch(null);
         student.setTenthPercentage(null);
@@ -409,7 +423,7 @@ class DriveApiTest {
      */
     private MockHttpServletRequestBuilder eligibleFor(String cgpa, String tenth, String twelfth,
                                                      int backlogs, String branch) {
-        User student = userRepository.findByEmail("student@college.edu").orElseThrow();
+        User student = userRepository.findByEmail("student@cse.nits.ac.in").orElseThrow();
         student.setCgpa(new BigDecimal(cgpa));
         student.setTenthPercentage(new BigDecimal(tenth));
         student.setTwelfthPercentage(new BigDecimal(twelfth));

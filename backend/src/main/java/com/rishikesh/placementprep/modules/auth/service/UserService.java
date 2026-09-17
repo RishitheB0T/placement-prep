@@ -7,6 +7,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import com.rishikesh.placementprep.modules.auth.dto.UpdateProfileRequest;
 import com.rishikesh.placementprep.modules.auth.dto.UserProfileDTO;
+import com.rishikesh.placementprep.modules.auth.model.Role;
 import com.rishikesh.placementprep.modules.auth.model.User;
 import com.rishikesh.placementprep.modules.auth.repository.UserRepository;
 
@@ -16,9 +17,10 @@ import com.rishikesh.placementprep.modules.auth.repository.UserRepository;
  * <p>Separate from AuthService because the two answer different questions: AuthService is
  * about proving who you are, this is about the details attached to you once you have.
  *
- * <p>Every method is keyed by email rather than by id. The email comes from the verified
- * token, so a caller can only ever reach their own row; there is no parameter they could
- * tamper with to read somebody else's profile.
+ * <p>The self-service methods are keyed by email rather than by id. The email comes from
+ * the verified token, so a caller can only ever reach their own row; there is no parameter
+ * they could tamper with to read somebody else's profile. The two id-keyed methods exist
+ * only for the promotion endpoint, which is restricted to the person in charge.
  */
 @Service
 public class UserService {
@@ -32,6 +34,38 @@ public class UserService {
     @Transactional(readOnly = true)
     public Optional<UserProfileDTO> findByEmail(String email) {
         return userRepository.findByEmail(email).map(this::toDto);
+    }
+
+    /**
+     * Looks a user up by id. Unlike the methods keyed by email, this one can reach an
+     * account other than the caller's, so every endpoint using it must be restricted to
+     * the person in charge.
+     */
+    @Transactional(readOnly = true)
+    public Optional<UserProfileDTO> findById(Long id) {
+        return userRepository.findById(id).map(this::toDto);
+    }
+
+    /**
+     * Makes a student a coordinator.
+     *
+     * <p>The guard is here rather than in the controller so that the rule holds for every
+     * caller, including a future scheduled job or bulk import. Refusing anything that is
+     * not a STUDENT is what stops this being a way to quietly demote the person in charge
+     * to a coordinator.
+     *
+     * @return empty when no user has that id <em>or</em> when they are not a student. The
+     *         controller tells those two apart to pick the right status code, because
+     *         only it knows what a 404 and a 409 mean.
+     */
+    @Transactional
+    public Optional<UserProfileDTO> promoteToCoordinator(Long id) {
+        return userRepository.findById(id)
+                .filter(user -> user.getRole() == Role.STUDENT)
+                .map(user -> {
+                    user.setRole(Role.TNP_COORDINATOR);
+                    return toDto(userRepository.save(user));
+                });
     }
 
     /**
