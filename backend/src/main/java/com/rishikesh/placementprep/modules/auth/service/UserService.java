@@ -6,6 +6,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import com.rishikesh.placementprep.modules.auth.dto.UpdateProfileRequest;
+import com.rishikesh.placementprep.modules.auth.dto.UpdateStaffProfileRequest;
 import com.rishikesh.placementprep.modules.auth.dto.UserProfileDTO;
 import com.rishikesh.placementprep.modules.auth.model.Role;
 import com.rishikesh.placementprep.modules.auth.model.User;
@@ -84,6 +85,26 @@ public class UserService {
     }
 
     /**
+     * Replaces the person in charge's own staff details.
+     *
+     * <p>Unrestricted here on purpose - SecurityConfig already refuses anyone who is not
+     * TNP_PIC before this method is ever reached, the same division of labour every other
+     * self-service method in this class relies on. The CHECK constraint added in V10 is
+     * the backstop if that ever changes.
+     *
+     * @return empty when no user has that email, which in practice means the account was
+     *         deleted after the token was issued
+     */
+    @Transactional
+    public Optional<UserProfileDTO> updateStaffProfile(String email, UpdateStaffProfileRequest request) {
+        return userRepository.findByEmail(email)
+                .map(user -> {
+                    applyRequest(user, request);
+                    return toDto(userRepository.save(user));
+                });
+    }
+
+    /**
      * Copies the editable fields of a request onto a user. Kept separate for the same
      * reason DriveService does it: so create and update paths cannot drift apart when a
      * field is added later.
@@ -100,6 +121,15 @@ public class UserService {
         user.setBacklogs(request.backlogs());
     }
 
+    /** Same shared-mapping reasoning as the academic overload above, for the PIC's own fields. */
+    private void applyRequest(User user, UpdateStaffProfileRequest request) {
+        user.setDesignation(request.designation());
+        user.setDepartment(request.department());
+        user.setStaffId(request.staffId());
+        user.setOfficeLocation(request.officeLocation());
+        user.setPhoneNumber(request.phoneNumber());
+    }
+
     private UserProfileDTO toDto(User user) {
         return new UserProfileDTO(
                 user.getId(),
@@ -109,6 +139,11 @@ public class UserService {
                 user.getBranch(),
                 user.getTenthPercentage(),
                 user.getTwelfthPercentage(),
-                user.getBacklogs());
+                user.getBacklogs(),
+                user.getDesignation(),
+                user.getDepartment(),
+                user.getStaffId(),
+                user.getOfficeLocation(),
+                user.getPhoneNumber());
     }
 }

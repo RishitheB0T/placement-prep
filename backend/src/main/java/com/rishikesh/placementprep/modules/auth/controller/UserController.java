@@ -13,6 +13,7 @@ import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.server.ResponseStatusException;
 
 import com.rishikesh.placementprep.modules.auth.dto.UpdateProfileRequest;
+import com.rishikesh.placementprep.modules.auth.dto.UpdateStaffProfileRequest;
 import com.rishikesh.placementprep.modules.auth.dto.UserProfileDTO;
 import com.rishikesh.placementprep.modules.auth.service.UserService;
 
@@ -56,6 +57,19 @@ public class UserController {
     public UserProfileDTO updateMe(@AuthenticationPrincipal UserDetails principal,
                                    @Valid @RequestBody UpdateProfileRequest request) {
         return userService.updateProfile(principal.getUsername(), request)
+                .orElseThrow(() -> new ResponseStatusException(
+                        HttpStatus.NOT_FOUND, "Account no longer exists"));
+    }
+
+    /**
+     * Replaces the person in charge's own staff details - designation, department, staff
+     * id, office location, phone number. Restricted to TNP_PIC by SecurityConfig; a
+     * coordinator calling this gets a 403 same as a student would.
+     */
+    @PutMapping("/me/staff-profile")
+    public UserProfileDTO updateStaffProfile(@AuthenticationPrincipal UserDetails principal,
+                                             @Valid @RequestBody UpdateStaffProfileRequest request) {
+        return userService.updateStaffProfile(principal.getUsername(), request)
                 .orElseThrow(() -> new ResponseStatusException(
                         HttpStatus.NOT_FOUND, "Account no longer exists"));
     }

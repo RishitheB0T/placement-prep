@@ -21,10 +21,17 @@ export interface AuthResponse {
 }
 
 /**
- * Returned by GET and PUT /api/users/me.
+ * Returned by GET /api/users/me, and by both profile PUT endpoints.
  *
  * `complete` is derived on the server from the isComplete() method on the record, and
- * says whether enough of the profile is filled in to judge eligibility.
+ * says whether enough of the *academic* profile is filled in to judge eligibility - it
+ * says nothing about the PIC-only fields below, since nothing in the system gates a
+ * feature behind those being filled in.
+ *
+ * The five staff fields are PIC-only, enforced by a database CHECK constraint: always
+ * null for a STUDENT or a TNP_COORDINATOR, exactly like `cgpa` is always null for staff.
+ * One flat shape for every role is the same choice already made for the academic fields -
+ * pages branch on `role` to decide which half of this to show.
  */
 export interface UserProfile {
   id: number;
@@ -36,6 +43,11 @@ export interface UserProfile {
   twelfthPercentage: number | null;
   backlogs: number;
   complete: boolean;
+  designation: string | null;
+  department: string | null;
+  staffId: string | null;
+  officeLocation: string | null;
+  phoneNumber: string | null;
 }
 
 /** Body of PUT /api/users/me. Every field is required, because PUT replaces in full. */
@@ -45,6 +57,23 @@ export interface UpdateProfileRequest {
   tenthPercentage: number;
   twelfthPercentage: number;
   backlogs: number;
+}
+
+/**
+ * Body of PUT /api/users/me/staff-profile. PIC only - the backend answers 403 for anyone
+ * else, including a coordinator.
+ *
+ * Every field is optional, unlike UpdateProfileRequest: nothing depends on a PIC's staff
+ * details being complete, so there is no all-or-nothing rule to enforce here. A field left
+ * out still replaces the stored value with null - PUT replaces the whole sub-resource -
+ * it is just that "null" is itself a valid, unenforced outcome for every field.
+ */
+export interface UpdateStaffProfileRequest {
+  designation: string | null;
+  department: string | null;
+  staffId: string | null;
+  officeLocation: string | null;
+  phoneNumber: string | null;
 }
 
 /** A placement drive, as returned by /api/drives. */

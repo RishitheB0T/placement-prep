@@ -67,6 +67,22 @@ public class User {
     @Column(nullable = false)
     private Integer backlogs = 0;
 
+    // ---- Person-in-charge details ----------------------------------------------
+    // All nullable, and all meaningless outside TNP_PIC - enforced by the
+    // users_staff_fields_pic_only CHECK constraint added in V10, not just by convention
+    // here. A student or a coordinator never has these filled in.
+
+    private String designation;
+
+    private String department;
+
+    @Column(name = "staff_id")
+    private String staffId;
+
+    private String officeLocation;
+
+    private String phoneNumber;
+
     @CreationTimestamp
     private Instant createdAt;
 
@@ -146,6 +162,46 @@ public class User {
 
     public void setBacklogs(Integer backlogs) {
         this.backlogs = backlogs;
+    }
+
+    public String getDesignation() {
+        return designation;
+    }
+
+    public void setDesignation(String designation) {
+        this.designation = designation;
+    }
+
+    public String getDepartment() {
+        return department;
+    }
+
+    public void setDepartment(String department) {
+        this.department = department;
+    }
+
+    public String getStaffId() {
+        return staffId;
+    }
+
+    public void setStaffId(String staffId) {
+        this.staffId = staffId;
+    }
+
+    public String getOfficeLocation() {
+        return officeLocation;
+    }
+
+    public void setOfficeLocation(String officeLocation) {
+        this.officeLocation = officeLocation;
+    }
+
+    public String getPhoneNumber() {
+        return phoneNumber;
+    }
+
+    public void setPhoneNumber(String phoneNumber) {
+        this.phoneNumber = phoneNumber;
     }
 
     public Instant getCreatedAt() {

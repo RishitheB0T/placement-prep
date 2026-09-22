@@ -535,6 +535,71 @@ class AuthApiTest {
                 .isEqualTo(Role.TNP_PIC);
     }
 
+    // ------------------------------------------------------------ Staff profile
+
+    @Test
+    void thePersonInChargeCanUpdateTheirOwnStaffProfile() throws Exception {
+        String pic = tokenFor("pic@tnp.nits.ac.in", Role.TNP_PIC);
+
+        mockMvc.perform(put("/api/users/me/staff-profile")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + pic)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(staffProfileJson("Training & Placement Officer", "TNP Cell",
+                                "STAFF-042", "Admin Block, Room 12", "9876543210")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.designation").value("Training & Placement Officer"))
+                .andExpect(jsonPath("$.staffId").value("STAFF-042"));
+
+        User saved = userRepository.findByEmail("pic@tnp.nits.ac.in").orElseThrow();
+        assertThat(saved.getDepartment()).isEqualTo("TNP Cell");
+        assertThat(saved.getPhoneNumber()).isEqualTo("9876543210");
+    }
+
+    /** The split this session was built for: staff details are the PIC's alone. */
+    @Test
+    void aCoordinatorCannotUpdateStaffProfile() throws Exception {
+        String coordinator = tokenFor("coordinator@tnp.nits.ac.in", Role.TNP_COORDINATOR);
+
+        mockMvc.perform(put("/api/users/me/staff-profile")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + coordinator)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(staffProfileJson("Coordinator", "TNP Cell", "X", "X", "X")))
+                .andExpect(status().isForbidden());
+
+        assertThat(userRepository.findByEmail("coordinator@tnp.nits.ac.in").orElseThrow().getDesignation())
+                .isNull();
+    }
+
+    @Test
+    void aStudentCannotUpdateStaffProfile() throws Exception {
+        String student = tokenFor("student@cse.nits.ac.in", Role.STUDENT);
+
+        mockMvc.perform(put("/api/users/me/staff-profile")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + student)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(staffProfileJson("Student", "X", "X", "X", "X")))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
+    void updatingStaffProfileWithoutATokenIs401() throws Exception {
+        mockMvc.perform(put("/api/users/me/staff-profile")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(staffProfileJson("X", "X", "X", "X", "X")))
+                .andExpect(status().isUnauthorized());
+    }
+
+    /** A student's own /me response must never grow PIC-only fields. */
+    @Test
+    void staffFieldsAreNullOnAStudentsOwnProfile() throws Exception {
+        String student = tokenFor("student@cse.nits.ac.in", Role.STUDENT);
+
+        mockMvc.perform(get("/api/users/me").header(HttpHeaders.AUTHORIZATION, "Bearer " + student))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.designation").value(org.hamcrest.Matchers.nullValue()))
+                .andExpect(jsonPath("$.staffId").value(org.hamcrest.Matchers.nullValue()));
+    }
+
     // ----------------------------------------------------------------- Helpers
 
     private String credentials(String email, String password) {
@@ -562,6 +627,14 @@ class AuthApiTest {
         return """
                 {"cgpa":%s,"branch":"%s","tenthPercentage":%s,"twelfthPercentage":%s,"backlogs":%d}
                 """.formatted(cgpa, branch, tenth, twelfth, backlogs);
+    }
+
+    private String staffProfileJson(String designation, String department, String staffId,
+                                    String officeLocation, String phoneNumber) {
+        return """
+                {"designation":"%s","department":"%s","staffId":"%s",
+                 "officeLocation":"%s","phoneNumber":"%s"}
+                """.formatted(designation, department, staffId, officeLocation, phoneNumber);
     }
 
     private void createUser(String email, Role role) {

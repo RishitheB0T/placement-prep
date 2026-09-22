@@ -1,5 +1,5 @@
 import { api, clearToken, getToken, setToken } from "./client";
-import type { AuthResponse, UpdateProfileRequest, UserProfile } from "./types";
+import type { AuthResponse, UpdateProfileRequest, UpdateStaffProfileRequest, UserProfile } from "./types";
 
 /**
  * Creates an account and signs in.
@@ -44,4 +44,13 @@ export function fetchMyProfile(): Promise<UserProfile> {
 /** Replaces my academic details. PUT replaces in full, so every field must be supplied. */
 export function updateMyProfile(profile: UpdateProfileRequest): Promise<UserProfile> {
   return api.put<UserProfile>("/api/users/me", profile);
+}
+
+/**
+ * Replaces the signed-in PIC's own staff details. The backend answers 403 for anyone
+ * else - this function does not and cannot enforce that itself, since a check running in
+ * the browser is something the caller can already see and bypass.
+ */
+export function updateMyStaffProfile(profile: UpdateStaffProfileRequest): Promise<UserProfile> {
+  return api.put<UserProfile>("/api/users/me/staff-profile", profile);
 }

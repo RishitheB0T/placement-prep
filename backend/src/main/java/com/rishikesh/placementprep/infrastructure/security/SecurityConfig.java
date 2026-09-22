@@ -93,6 +93,14 @@ public class SecurityConfig {
                     // The * matches exactly one path segment, so it cannot span an id.
                     .requestMatchers(HttpMethod.POST, "/api/users/*/promote").hasRole("TNP_PIC")
 
+                    // Designation, department, staff id and the rest belong to the person
+                    // in charge specifically, not the cell in general - a coordinator gets
+                    // a 403 here exactly like a student would. Declared before the plain
+                    // /api/users/me rule has no bearing on matching order here since the
+                    // two paths are distinct strings, but it sits next to the other
+                    // PIC-only rule on principle.
+                    .requestMatchers(HttpMethod.PUT, "/api/users/me/staff-profile").hasRole("TNP_PIC")
+
                     // Default deny. Anything added later is locked until a rule is written
                     // for it, which fails safe rather than silently exposing a new endpoint.
                     .anyRequest().authenticated())
