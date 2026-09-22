@@ -72,6 +72,21 @@ public class SecurityConfig {
                     .requestMatchers(HttpMethod.DELETE, "/api/drives/**")
                             .hasAnyRole("TNP_PIC", "TNP_COORDINATOR")
 
+                    // Applying, reading your own applications, and withdrawing need only
+                    // an account - ApplicationController resolves the caller's own id
+                    // from the token, so there is nothing here for a role to gate.
+                    .requestMatchers(HttpMethod.POST, "/api/applications").authenticated()
+                    .requestMatchers(HttpMethod.GET, "/api/applications/me").authenticated()
+                    .requestMatchers(HttpMethod.POST, "/api/applications/*/withdraw").authenticated()
+
+                    // Seeing who applied to a drive, and deciding what happens to them,
+                    // is the placement cell's job. Left open, any student could read the
+                    // whole applicant list for a drive they are competing in.
+                    .requestMatchers(HttpMethod.GET, "/api/applications/drive/*")
+                            .hasAnyRole("TNP_PIC", "TNP_COORDINATOR")
+                    .requestMatchers(HttpMethod.PATCH, "/api/applications/*/status")
+                            .hasAnyRole("TNP_PIC", "TNP_COORDINATOR")
+
                     // Staffing the cell is the person in charge's decision alone, so this
                     // one stays singular. A coordinator calling it gets a 403, which is
                     // what stops the cell from growing itself without oversight.
