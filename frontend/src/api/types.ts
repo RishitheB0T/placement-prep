@@ -64,3 +64,46 @@ export interface Drive {
   applicationDeadline: string;
   description: string | null;
 }
+
+/**
+ * Where an application has got to. The student controls only APPLIED (by applying) and
+ * WITHDRAWN; everything between is the placement cell's decision.
+ */
+export type ApplicationStatus = "APPLIED" | "SHORTLISTED" | "REJECTED" | "SELECTED" | "WITHDRAWN";
+
+/**
+ * Returned by every /api/applications endpoint. studentId and driveId are bare ids
+ * rather than embedded objects - the backend keeps this DTO flat, so a page that wants a
+ * company name or a student's email resolves it itself from data it already has (the
+ * drives list, in the student view) rather than the API silently getting heavier.
+ */
+export interface Application {
+  id: number;
+  studentId: number;
+  driveId: number;
+  status: ApplicationStatus;
+  note: string | null;
+  appliedAt: string;
+  updatedAt: string;
+}
+
+/**
+ * Body of POST and PUT /api/drives - the same shape serves both, mirroring DriveRequest
+ * on the backend. tenthCutoff, twelfthCutoff, maxBacklogs and description are nullable:
+ * a null cutoff means the drive sets no requirement for that qualification, and a null
+ * maxBacklogs with backlogsAllowed true means no ceiling.
+ */
+export interface DriveRequest {
+  companyName: string;
+  role: string;
+  ctc: number;
+  tier: number;
+  cgpaCutoff: number;
+  tenthCutoff: number | null;
+  twelfthCutoff: number | null;
+  backlogsAllowed: boolean;
+  maxBacklogs: number | null;
+  eligibleBranches: string[];
+  applicationDeadline: string;
+  description: string | null;
+}

@@ -1,5 +1,5 @@
 import { api } from "./client";
-import type { Drive } from "./types";
+import type { Drive, DriveRequest } from "./types";
 
 /** Every drive on the board, newest first. Any signed-in user may read this. */
 export function fetchAllDrives(): Promise<Drive[]> {
@@ -17,4 +17,19 @@ export function fetchAllDrives(): Promise<Drive[]> {
  */
 export function fetchEligibleDrives(): Promise<Drive[]> {
   return api.get<Drive[]>("/api/drives/eligible");
+}
+
+/**
+ * Posts a new drive. The backend restricts this to TNP_COORDINATOR and TNP_PIC with a
+ * 403 - this function does not and cannot enforce that itself, since anything running in
+ * the browser is something the user can already see and bypass. The server is the actual
+ * gate; hiding the button from a student on this page is only ever a convenience.
+ */
+export function createDrive(request: DriveRequest): Promise<Drive> {
+  return api.post<Drive>("/api/drives", request);
+}
+
+/** Same restriction as createDrive. Returns 204 with no body on success. */
+export function deleteDrive(id: number): Promise<void> {
+  return api.delete<void>(`/api/drives/${id}`);
 }

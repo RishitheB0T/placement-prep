@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 
+import { applyToDrive, fetchMyApplications } from "../api/applications";
 import { fetchMyProfile, logout } from "../api/auth";
 import { ApiError } from "../api/client";
-import { fetchAllDrives, fetchEligibleDrives } from "../api/drives";
-import type { Drive, UserProfile } from "../api/types";
+import { deleteDrive, fetchAllDrives, fetchEligibleDrives } from "../api/drives";
+import type { Application, Drive, UserProfile } from "../api/types";
 
 type Tab = "eligible" | "all";
 
@@ -13,11 +14,14 @@ export default function Drives() {
 
   const [tab, setTab] = useState<Tab>("eligible");
   const [drives, setDrives] = useState<Drive[]>([]);
+  const [applications, setApplications] = useState<Application[]>([]);
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   /** Set when the backend answers 409: the profile is not filled in yet. */
   const [needsProfile, setNeedsProfile] = useState(false);
+
+  const isStaff = profile?.role === "TNP_PIC" || profile?.role === "TNP_COORDINATOR";
 
   // useCallback so the effect below does not re-run on every render.
   const load = useCallback(
@@ -27,12 +31,22 @@ export default function Drives() {
       setNeedsProfile(false);
 
       try {
-        const [me, list] = await Promise.all([
-          fetchMyProfile(),
-          which === "eligible" ? fetchEligibleDrives() : fetchAllDrives(),
-        ]);
+        // Sequential rather than Promise.all: which endpoint to call next depends on the
+        // role that only the first response reveals, so there is nothing to parallelise.
+        const me = await fetchMyProfile();
         setProfile(me);
+
+        // "Eligible for me" is a student concept - staff have no CGPA or branch on their
+        // account, so /api/drives/eligible would answer 409 for them every time. Staff
+        // always see the full board instead, regardless of which tab is selected.
+        const staff = me.role === "TNP_PIC" || me.role === "TNP_COORDINATOR";
+        const [list, mine] = await Promise.all([
+          staff || which === "all" ? fetchAllDrives() : fetchEligibleDrives(),
+          // Staff have no applications of their own; asking would just waste a request.
+          staff ? Promise.resolve([] as Application[]) : fetchMyApplications(),
+        ]);
         setDrives(list);
+        setApplications(mine);
       } catch (e) {
         if (e instanceof ApiError && e.status === 401) {
           // The token is gone or expired. client.ts has already cleared it.
@@ -62,6 +76,30 @@ export default function Drives() {
     navigate("/login", { replace: true });
   }
 
+  async function handleDelete(drive: Drive) {
+    if (!window.confirm(`Delete the ${drive.companyName} drive? This cannot be undone.`)) {
+      return;
+    }
+    try {
+      await deleteDrive(drive.id);
+      setDrives((current) => current.filter((d) => d.id !== drive.id));
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : "Could not delete the drive");
+    }
+  }
+
+  async function handleApply(drive: Drive) {
+    setError(null);
+    try {
+      const created = await applyToDrive(drive.id);
+      setApplications((current) => [...current, created]);
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : "Could not apply");
+    }
+  }
+
+  const applicationFor = (driveId: number) => applications.find((a) => a.driveId === driveId);
+
   return (
     <main className="mx-auto max-w-3xl p-6">
       <header className="flex items-start justify-between gap-4">
@@ -76,6 +114,20 @@ export default function Drives() {
           )}
         </div>
         <div className="flex gap-2">
+          {isStaff && (
+            <button
+              onClick={() => navigate("/post-drive")}
+              className="rounded-lg bg-slate-900 px-3 py-1.5 text-sm font-medium text-white hover:bg-slate-700"
+            >
+              Post a drive
+            </button>
+          )}
+          <button
+            onClick={() => navigate("/applications")}
+            className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-100"
+          >
+            {isStaff ? "Applicants" : "My applications"}
+          </button>
           <button
             onClick={() => navigate("/profile")}
             className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-100"
@@ -91,14 +143,21 @@ export default function Drives() {
         </div>
       </header>
 
-      <div className="mt-6 flex gap-2 border-b border-slate-200">
-        <TabButton active={tab === "eligible"} onClick={() => setTab("eligible")}>
-          Eligible for me
-        </TabButton>
-        <TabButton active={tab === "all"} onClick={() => setTab("all")}>
-          All drives
-        </TabButton>
-      </div>
+      {/*
+        Staff always see every drive (load() above ignores this tab for them), so the
+        tab bar itself would be misleading to show - clicking "Eligible for me" would look
+        like it did something while quietly serving the same "all drives" list underneath.
+      */}
+      {!isStaff && (
+        <div className="mt-6 flex gap-2 border-b border-slate-200">
+          <TabButton active={tab === "eligible"} onClick={() => setTab("eligible")}>
+            Eligible for me
+          </TabButton>
+          <TabButton active={tab === "all"} onClick={() => setTab("all")}>
+            All drives
+          </TabButton>
+        </div>
+      )}
 
       {loading && <p className="mt-6 text-slate-500">Loading...</p>}
 
@@ -128,7 +187,7 @@ export default function Drives() {
 
       {!loading && !error && !needsProfile && drives.length === 0 && (
         <p className="mt-6 text-slate-500">
-          {tab === "eligible"
+          {!isStaff && tab === "eligible"
             ? "No open drives match your profile right now."
             : "No drives have been posted yet."}
         </p>
@@ -136,7 +195,14 @@ export default function Drives() {
 
       <ul className="mt-6 space-y-3">
         {drives.map((drive) => (
-          <DriveCard key={drive.id} drive={drive} />
+          <DriveCard
+            key={drive.id}
+            drive={drive}
+            isStaff={isStaff}
+            application={applicationFor(drive.id)}
+            onDelete={() => void handleDelete(drive)}
+            onApply={() => void handleApply(drive)}
+          />
         ))}
       </ul>
     </main>
@@ -163,7 +229,19 @@ function TabButton(props: {
   );
 }
 
-function DriveCard({ drive }: { drive: Drive }) {
+function DriveCard({
+  drive,
+  isStaff,
+  application,
+  onDelete,
+  onApply,
+}: {
+  drive: Drive;
+  isStaff: boolean;
+  application?: Application;
+  onDelete: () => void;
+  onApply: () => void;
+}) {
   // Indian formatting, because CTC figures here are read in lakhs.
   const ctc = new Intl.NumberFormat("en-IN", {
     style: "currency",
@@ -176,6 +254,8 @@ function DriveCard({ drive }: { drive: Drive }) {
     month: "short",
     year: "numeric",
   });
+
+  const closed = new Date(drive.applicationDeadline).getTime() < Date.now();
 
   return (
     <li className="rounded-xl border border-slate-200 bg-white p-4">
@@ -209,6 +289,32 @@ function DriveCard({ drive }: { drive: Drive }) {
       {drive.description && (
         <p className="mt-3 text-sm text-slate-600">{drive.description}</p>
       )}
+
+      <div className="mt-4">
+        {isStaff ? (
+          <button
+            onClick={onDelete}
+            className="rounded-lg border border-red-300 px-3 py-1.5 text-sm font-medium text-red-700 hover:bg-red-50"
+          >
+            Delete
+          </button>
+        ) : application ? (
+          // Once an application row exists - even a withdrawn one - the backend's
+          // (student, drive) uniqueness constraint refuses a second POST, so there is no
+          // "apply again" path to offer here; the badge is the honest end state.
+          <span className="rounded-lg bg-slate-100 px-3 py-1.5 text-sm font-medium text-slate-600">
+            {application.status === "APPLIED" ? "Applied" : application.status.toLowerCase()}
+          </span>
+        ) : (
+          <button
+            onClick={onApply}
+            disabled={closed}
+            className="rounded-lg bg-slate-900 px-3 py-1.5 text-sm font-medium text-white hover:bg-slate-700 disabled:opacity-40"
+          >
+            {closed ? "Closed" : "Apply"}
+          </button>
+        )}
+      </div>
     </li>
   );
 }

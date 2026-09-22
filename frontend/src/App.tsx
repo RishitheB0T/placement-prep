@@ -1,8 +1,10 @@
 import { Navigate, Route, Routes } from "react-router-dom";
 
 import ProtectedRoute from "./components/ProtectedRoute";
+import Applications from "./pages/Applications";
 import Drives from "./pages/Drives";
 import Login from "./pages/Login";
+import PostDrive from "./pages/PostDrive";
 import Profile from "./pages/Profile";
 import Register from "./pages/Register";
 
@@ -26,6 +28,33 @@ export default function App() {
         element={
           <ProtectedRoute>
             <Profile />
+          </ProtectedRoute>
+        }
+      />
+      {/*
+        Reachable only by TNP_COORDINATOR and TNP_PIC. ProtectedRoute only checks that
+        someone is signed in at all, not which role - PostDrive itself redirects a
+        STUDENT back to /drives, and SecurityConfig's 403 on the backend is the part of
+        this that a browser cannot be talked around.
+      */}
+      <Route
+        path="/post-drive"
+        element={
+          <ProtectedRoute>
+            <PostDrive />
+          </ProtectedRoute>
+        }
+      />
+      {/*
+        One page, two views: Applications.tsx itself checks the signed-in role and shows
+        "my applications" or "applicants for a drive" accordingly - there is no separate
+        staff route to define here.
+      */}
+      <Route
+        path="/applications"
+        element={
+          <ProtectedRoute>
+            <Applications />
           </ProtectedRoute>
         }
       />

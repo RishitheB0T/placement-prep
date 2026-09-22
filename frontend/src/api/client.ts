@@ -104,9 +104,14 @@ async function errorMessage(response: Response): Promise<string> {
 
 export const api = {
   get: <T>(path: string) => request<T>(path),
-  post: <T>(path: string, body: unknown) =>
-    request<T>(path, { method: "POST", body: JSON.stringify(body) }),
+  // body is optional: a POST that only performs an action (withdrawing an application,
+  // say) has nothing to send, and `request` already treats "no body" and "body:
+  // undefined" identically when deciding whether to set the JSON content type.
+  post: <T>(path: string, body?: unknown) =>
+    request<T>(path, { method: "POST", ...(body === undefined ? {} : { body: JSON.stringify(body) }) }),
   put: <T>(path: string, body: unknown) =>
     request<T>(path, { method: "PUT", body: JSON.stringify(body) }),
+  patch: <T>(path: string, body: unknown) =>
+    request<T>(path, { method: "PATCH", body: JSON.stringify(body) }),
   delete: <T>(path: string) => request<T>(path, { method: "DELETE" }),
 };
