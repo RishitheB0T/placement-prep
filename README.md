@@ -9,15 +9,16 @@ help them prepare.
 | Feature | State |
 | --- | --- |
 | Drives board - TNP CRUD and the student eligibility filter | **Built** |
+| Applications - a student applying to a drive, and the cell tracking status | **Built** |
 | Accounts, login and three-tier roles | **Built** - Spring Security + JWT |
-| Web UI - register, sign in, profile, drives board | **Built** |
+| Web UI - register, sign in, profile, drives board, applications, posting a drive | **Built** |
 | Resume upload with AI feedback | Planned - background job queue |
 | Q&A over placement notices | Planned - RAG with Spring AI + pgvector |
 | Company-wise AI mock interviews | Planned |
 | Deadline reminders | Planned - scheduled jobs |
 
-Not built yet: there is no screen for posting a drive, and no seeded TNP account. See
-[Creating the first TNP account](#creating-the-first-tnp-account).
+The first TNP account (the person in charge) is seeded by a migration - see
+[Signing in as the person in charge](#signing-in-as-the-person-in-charge).
 
 ## Stack
 
@@ -25,6 +26,60 @@ Not built yet: there is no screen for posting a drive, and no seeded TNP account
 Validation, Spring Data JPA, Flyway, Actuator, Testcontainers.
 **Frontend** - React 19, TypeScript, Vite, Tailwind CSS v4, React Router v7.
 **Infrastructure** - PostgreSQL 16 with the pgvector extension, via Docker Compose.
+
+## Request flow
+
+What actually happens between a click in the browser and a row in Postgres, for the
+development setup this repository runs (`npm run dev` + `mvnw spring-boot:run` - there is
+no production build/deploy story here yet, so the diagram does not invent one):
+
+```mermaid
+flowchart LR
+    subgraph Browser["Browser"]
+        UI["pages/*.tsx\nReact components"]
+        API["api/*.ts\none fetch wrapper"]
+        UI --> API
+    end
+
+    subgraph Vite["Vite dev server · :5173"]
+        Proxy["proxies /api and /actuator\nso there is one origin, no CORS"]
+    end
+
+    subgraph Spring["Spring Boot · :8081"]
+        Filter["JwtAuthenticationFilter\nverifies the signature, loads the caller"]
+        Rules["SecurityConfig\nauthorizeHttpRequests - role checks"]
+        Controller["Controller\nDTOs in, DTOs out - never an entity"]
+        Service["Service\nbusiness rules; Optional/boolean means 'not found'"]
+        Repo["Repository\nSpring Data JPA"]
+    end
+
+    DB[("PostgreSQL\nschema owned by Flyway")]
+
+    API -->|"fetch('/api/…')\nAuthorization: Bearer token"| Proxy
+    Proxy --> Filter
+    Filter --> Rules
+    Rules -->|"401 no/bad token · 403 wrong role\n- request stops here"| Controller
+    Controller --> Service
+    Service --> Repo
+    Repo --> DB
+```
+
+A few things this diagram is being precise about:
+
+- **The token round-trips on every request**, not just at login. `api/client.ts` attaches
+  `Authorization: Bearer <token>` to every call; `JwtAuthenticationFilter` verifies the
+  signature and re-reads the role from the database rather than trusting the token's
+  claim, so a promotion or a revoked account takes effect on the very next request.
+- **A 401 or 403 never reaches a controller.** `SecurityConfig`'s rules run first; a
+  student hitting a PIC-only endpoint is turned away by the filter chain, and the
+  controller method for that endpoint simply never executes.
+- **Controllers never see or return an entity.** Everything crossing the browser boundary
+  is a DTO, so the database schema (`model/`) and the public API (`dto/`) can change on
+  different days without one breaking the other.
+- **Services return `Optional`/`boolean`, never a status code.** Deciding that "not found"
+  means 404, or that "already exists" means 409, is the controller's job - the same
+  service method stays callable from a future scheduled job or CLI command with no web
+  request in sight.
 
 ## Prerequisites
 
@@ -116,8 +171,8 @@ privilege takes effect on the next call rather than whenever the token happens t
 
 | Role | May do |
 | --- | --- |
-| `STUDENT` | read the board, see their own eligible drives, edit their own profile |
-| `TNP_COORDINATOR` | everything a student may, plus create, edit and delete drives |
+| `STUDENT` | read the board, see their own eligible drives, edit their own profile, apply to and withdraw from drives |
+| `TNP_COORDINATOR` | everything a student may, plus create, edit and delete drives, and review/decide applications |
 | `TNP_PIC` | everything a coordinator may, plus promote a student to coordinator |
 
 Registration always creates a `STUDENT`. There is deliberately no role field on the
@@ -133,16 +188,31 @@ department subdomain is required, so `name@cse.nits.ac.in` is accepted and the b
 `name@nits.ac.in` is not. The check requires a dot immediately before `nits.ac.in`, which
 is what stops a lookalike domain such as `notnits.ac.in` from passing a naive suffix test.
 
-### Creating the first TNP account
+### Signing in as the person in charge
 
-No TNP account is seeded, so a fresh database has no one who can post a drive. Register
-normally, then promote yourself directly:
+`V8__seed_person_in_charge.sql` inserts the first `TNP_PIC` account directly, so a fresh
+database already has someone who can post a drive and promote others - no manual SQL
+needed:
+
+| Email | Password |
+| --- | --- |
+| `tnp@pic.nits.ac.in` | `9676596160` |
+
+This uses the ordinary sign-in form; there is no separate staff login. The stored hash
+was generated with this project's own `BCryptPasswordEncoder` and round-trip verified
+with `encoder.matches(...)` before being written into the migration, not typed by hand -
+a hash that does not actually match its password is a seed account that quietly cannot
+log in. That password is a local-development placeholder committed on purpose for this
+seed row; it is not meant to guard anything real, which is also why registration itself
+stays gated to college addresses rather than accepting arbitrary emails.
+
+A signed-in `TNP_PIC` promotes further students to `TNP_COORDINATOR` through the API:
 
 ```sql
+-- only needed if you want a second PIC account; coordinators are promoted through
+-- POST /api/users/{id}/promote instead, once signed in as the seeded PIC above
 UPDATE users SET role = 'TNP_PIC' WHERE email = 'you@cse.nits.ac.in';
 ```
-
-From then on that account can promote others through the API.
 
 ## API
 
@@ -235,6 +305,35 @@ curl.exe -X POST http://localhost:8081/api/drives `
   \"applicationDeadline\": \"2026-12-20T18:00:00Z\"}'
 ```
 
+### Applications
+
+Base path `/api/applications`.
+
+| Method | Path | Purpose | Who | Success |
+| --- | --- | --- | --- | --- |
+| `POST` | `/api/applications` | apply to a drive | any signed-in user | `201` / `409` |
+| `GET` | `/api/applications/me` | my own applications | any signed-in user | `200` |
+| `GET` | `/api/applications/drive/{driveId}` | everyone who applied to a drive | PIC, coordinator | `200` |
+| `PATCH` | `/api/applications/{id}/status` | move an application along | PIC, coordinator | `200` / `404` |
+| `POST` | `/api/applications/{id}/withdraw` | pull out of a drive | any signed-in user | `200` / `404` |
+
+`POST /api/applications` takes only `{"driveId": ...}` - the student comes from the
+signed-in account, never from the body, so nobody can apply on someone else's behalf.
+Applying twice to the same drive is a `409`, backed by a real `UNIQUE (student_id,
+drive_id)` constraint in the database, not just an application-level check. That
+uniqueness also means **withdrawing is final**: it sets status to `WITHDRAWN` rather than
+deleting the row, so a later `POST` to the same drive still finds that row and still
+answers `409` - there is no re-apply path once withdrawn.
+
+Status is one of `APPLIED`, `SHORTLISTED`, `REJECTED`, `SELECTED`, `WITHDRAWN`. A student
+can reach `APPLIED` (by applying) and `WITHDRAWN` (by withdrawing) and nothing else;
+every other transition is the placement cell's call through `PATCH .../status`.
+
+Withdrawing someone else's application answers `404`, not `403` - `ApplicationService`
+looks the row up by `(id, studentId)` together, so a guessed id that belongs to another
+student simply does not match, and the response never confirms that an application with
+that id exists at all.
+
 ### Errors
 
 Every error is [RFC 9457 Problem Details](https://www.rfc-editor.org/rfc/rfc9457) JSON, so
@@ -271,6 +370,7 @@ placement-prep/
 │           │   ├── repository/ Spring Data JPA interfaces
 │           │   ├── model/      JPA entities
 │           │   └── dto/        Request and response records
+│           ├── application/    A student applying, and its status     (built)
 │           ├── resume/         Resume uploads and AI feedback         (planned)
 │           ├── knowledgebase/  RAG over placement notices             (planned)
 │           ├── interview/      AI mock interviews                     (planned)
@@ -279,7 +379,8 @@ placement-prep/
 │   └── src/
 │       ├── api/                Functions that call the backend
 │       ├── components/         Reusable presentational pieces
-│       └── pages/              Login, Register, Profile, Drives
+│       └── pages/              Login, Register, Profile, Drives,
+│                                Applications, PostDrive
 └── docker-compose.yml      PostgreSQL with the pgvector extension
 ```
 
@@ -304,6 +405,8 @@ Flyway stores a checksum of each file and refuses to start if one changes.
 | `V5__create_users_table.sql` | the `users` table |
 | `V6__add_student_profile_to_users.sql` | CGPA, branch, school percentages, backlogs |
 | `V7__update_user_roles.sql` | splits the single TNP role into coordinator and PIC |
+| `V8__seed_person_in_charge.sql` | inserts the first `TNP_PIC` account, hash pre-verified |
+| `V9__create_applications_table.sql` | the `applications` table, with real foreign keys into `users` and `drives` |
 
 ## Testing
 
@@ -312,7 +415,7 @@ cd backend
 .\mvnw.cmd test
 ```
 
-71 integration tests. They run against a real PostgreSQL container started by
+81 integration tests. They run against a real PostgreSQL container started by
 Testcontainers using the `pgvector/pgvector:pg16` image, so **Docker must be running**.
 Nothing is mocked and no test touches the development database. New integration tests
 should import `TestcontainersConfiguration` rather than pointing at a hand-managed
