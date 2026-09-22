@@ -117,6 +117,38 @@ class ApplicationApiTest {
     }
 
     @Test
+    void reapplyingAfterWithdrawingReopensTheSameApplicationRow() throws Exception {
+        Application withdrawn = seedApplication(studentId, driveId, ApplicationStatus.WITHDRAWN);
+
+        mockMvc.perform(post("/api/applications").header(HttpHeaders.AUTHORIZATION, bearer(studentToken))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(applyJson(driveId)))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.id").value(withdrawn.getId()))
+                .andExpect(jsonPath("$.status").value("APPLIED"));
+
+        // Reopened, not duplicated: still exactly one row for this (student, drive) pair.
+        assertThat(applicationRepository.count()).isEqualTo(1);
+    }
+
+    /**
+     * Only WITHDRAWN is re-openable. A rejected application is a decision the cell already
+     * made, not a state a second POST should quietly erase.
+     */
+    @Test
+    void applyingAgainAfterBeingRejectedIsStill409() throws Exception {
+        seedApplication(studentId, driveId, ApplicationStatus.REJECTED);
+
+        mockMvc.perform(post("/api/applications").header(HttpHeaders.AUTHORIZATION, bearer(studentToken))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(applyJson(driveId)))
+                .andExpect(status().isConflict());
+
+        assertThat(applicationRepository.findByStudentIdAndDriveId(studentId, driveId).orElseThrow().getStatus())
+                .isEqualTo(ApplicationStatus.REJECTED);
+    }
+
+    @Test
     void twoDifferentStudentsCanApplyToTheSameDrive() throws Exception {
         mockMvc.perform(post("/api/applications").header(HttpHeaders.AUTHORIZATION, bearer(studentToken))
                         .contentType(MediaType.APPLICATION_JSON)

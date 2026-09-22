@@ -1,5 +1,6 @@
 package com.rishikesh.placementprep.modules.application.service;
 
+import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 
@@ -26,14 +27,30 @@ public class ApplicationService {
     /**
      * Records a student applying to a drive.
      *
-     * @return empty when they have already applied. The UNIQUE constraint on
-     *         (student_id, drive_id) is the real guard; this check only turns the common
-     *         case into a clean 409 instead of a constraint-violation 500.
+     * <p>A withdrawn application re-opens the same row rather than failing. The UNIQUE
+     * constraint on (student_id, drive_id) would refuse a second INSERT for this pair
+     * regardless of status, so "apply again after withdrawing" has to mean "flip this row
+     * back to APPLIED" - there is no other row it could become. The note is cleared and
+     * appliedAt is reset to now, because both described the withdrawn cycle: a stale note
+     * about why the cell was reviewing them last time, or a date that would otherwise make
+     * a fresh application look months old, would mislead more than help.
+     *
+     * @return empty when there is already an active application for this drive - APPLIED,
+     *         SHORTLISTED, REJECTED or SELECTED. Only WITHDRAWN is re-openable.
      */
     @Transactional
     public Optional<ApplicationDTO> apply(Long studentId, Long driveId) {
-        if (applicationRepository.findByStudentIdAndDriveId(studentId, driveId).isPresent()) {
-            return Optional.empty();
+        Optional<Application> existing = applicationRepository.findByStudentIdAndDriveId(studentId, driveId);
+
+        if (existing.isPresent()) {
+            Application application = existing.get();
+            if (application.getStatus() != ApplicationStatus.WITHDRAWN) {
+                return Optional.empty();
+            }
+            application.setStatus(ApplicationStatus.APPLIED);
+            application.setNote(null);
+            application.setAppliedAt(Instant.now());
+            return Optional.of(toDto(applicationRepository.save(application)));
         }
 
         Application application = new Application();

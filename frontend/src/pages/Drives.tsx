@@ -92,7 +92,11 @@ export default function Drives() {
     setError(null);
     try {
       const created = await applyToDrive(drive.id);
-      setApplications((current) => [...current, created]);
+      // Replace rather than append: re-applying after a withdrawal reopens the same
+      // application row on the backend (same id, status back to APPLIED) rather than
+      // creating a second one, so the stale withdrawn entry for this drive has to be
+      // dropped or the board would hold two records for the one drive.
+      setApplications((current) => [...current.filter((a) => a.driveId !== drive.id), created]);
     } catch (e) {
       setError(e instanceof ApiError ? e.message : "Could not apply");
     }
@@ -298,14 +302,15 @@ function DriveCard({
           >
             Delete
           </button>
-        ) : application ? (
-          // Once an application row exists - even a withdrawn one - the backend's
-          // (student, drive) uniqueness constraint refuses a second POST, so there is no
-          // "apply again" path to offer here; the badge is the honest end state.
+        ) : application && application.status !== "WITHDRAWN" ? (
           <span className="rounded-lg bg-slate-100 px-3 py-1.5 text-sm font-medium text-slate-600">
             {application.status === "APPLIED" ? "Applied" : application.status.toLowerCase()}
           </span>
         ) : (
+          // No application yet, or the previous one was withdrawn - either way the
+          // backend accepts a fresh POST here. A withdrawn row reopens rather than
+          // duplicates, since applying is blocked only by an active or decided
+          // application, not by history.
           <button
             onClick={onApply}
             disabled={closed}

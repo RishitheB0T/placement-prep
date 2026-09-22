@@ -1,6 +1,7 @@
 server:
   # Port 8080 is taken on this machine by an unrelated Windows service, so the
-  # local default is 8081. Override with SERVER_PORT anywhere 8080 is free.
+  # local default below uses a different one. Override with SERVER_PORT anywhere
+  # 8080 is free.
   port: ${SERVER_PORT:8081}
 
 spring:
