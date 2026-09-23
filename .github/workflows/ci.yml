@@ -48,5 +48,13 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      # Before the build, so a failing test stops the job at the cheaper step. Vitest
+      # needs no backend and no Docker - every call through src/api is stubbed - so this
+      # runs in a couple of seconds and cannot fail for reasons outside the frontend.
+      - name: Test
+        run: npm test
+
+      # `npm run build` type-checks with `tsc -b` before bundling, so this also catches
+      # type errors that the tests alone would not.
       - name: Build
         run: npm run build
