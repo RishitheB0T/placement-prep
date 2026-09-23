@@ -107,10 +107,17 @@ public class ApplicationService {
 
     // -------------------------------------------------------- Mapping helpers
 
+    /**
+     * studentEmail is left null here on purpose. Who a student id belongs to lives in the
+     * auth module, and reaching into it from this service would couple the two for the
+     * benefit of exactly one endpoint. The controller attaches it where it is wanted,
+     * which is the same seam DriveController already uses to read a caller's profile.
+     */
     private ApplicationDTO toDto(Application application) {
         return new ApplicationDTO(
                 application.getId(),
                 application.getStudentId(),
+                null,
                 application.getDriveId(),
                 application.getStatus(),
                 application.getNote(),

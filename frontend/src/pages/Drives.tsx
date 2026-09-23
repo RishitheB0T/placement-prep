@@ -45,6 +45,19 @@ export default function Drives() {
         // get it too. Only the PIC is excluded: they hold no CGPA or branch, so
         // /api/drives/eligible would answer 409 for them every time.
         const student = me.role !== "TNP_PIC";
+
+        // The profile we just loaded already says whether it is complete, so an
+        // incomplete one short-circuits here rather than making a request we know will
+        // be refused. The 409 branch below still exists for the race where the profile
+        // is emptied between these two calls - it is just no longer the normal path,
+        // which is what used to fill the console with red on every first visit.
+        if (student && which === "eligible" && !me.complete) {
+          setNeedsProfile(true);
+          setDrives([]);
+          setApplications(await fetchMyApplications());
+          return;
+        }
+
         const [list, mine] = await Promise.all([
           student && which === "eligible" ? fetchEligibleDrives() : fetchAllDrives(),
           // The PIC has no applications of their own; asking would waste a request.
@@ -213,6 +226,7 @@ export default function Drives() {
             application={applicationFor(drive.id)}
             onDelete={() => void handleDelete(drive)}
             onApply={() => void handleApply(drive)}
+            onEdit={() => navigate(`/drives/${drive.id}/edit`)}
           />
         ))}
       </ul>
@@ -247,6 +261,7 @@ function DriveCard({
   application,
   onDelete,
   onApply,
+  onEdit,
 }: {
   drive: Drive;
   canManage: boolean;
@@ -254,6 +269,7 @@ function DriveCard({
   application?: Application;
   onDelete: () => void;
   onApply: () => void;
+  onEdit: () => void;
 }) {
   // Indian formatting, because CTC figures here are read in lakhs.
   const ctc = new Intl.NumberFormat("en-IN", {
@@ -329,12 +345,20 @@ function DriveCard({
           ))}
 
         {canManage && (
-          <button
-            onClick={onDelete}
-            className="rounded-lg border border-red-300 px-3 py-1.5 text-sm font-medium text-red-700 hover:bg-red-50"
-          >
-            Delete
-          </button>
+          <>
+            <button
+              onClick={onEdit}
+              className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-100"
+            >
+              Edit
+            </button>
+            <button
+              onClick={onDelete}
+              className="rounded-lg border border-red-300 px-3 py-1.5 text-sm font-medium text-red-700 hover:bg-red-50"
+            >
+              Delete
+            </button>
+          </>
         )}
       </div>
     </li>

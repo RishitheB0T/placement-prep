@@ -29,6 +29,20 @@ export function createDrive(request: DriveRequest): Promise<Drive> {
   return api.post<Drive>("/api/drives", request);
 }
 
+/** One drive by id. Any signed-in user may read it; used to fill the edit form. */
+export function fetchDriveById(id: number): Promise<Drive> {
+  return api.get<Drive>(`/api/drives/${id}`);
+}
+
+/**
+ * Replaces a drive. PUT replaces in full, so every field must be sent - omitting an
+ * optional cutoff clears it rather than leaving the stored value alone. Same staff-only
+ * restriction as createDrive.
+ */
+export function updateDrive(id: number, drive: DriveRequest): Promise<Drive> {
+  return api.put<Drive>(`/api/drives/${id}`, drive);
+}
+
 /** Same restriction as createDrive. Returns 204 with no body on success. */
 export function deleteDrive(id: number): Promise<void> {
   return api.delete<void>(`/api/drives/${id}`);

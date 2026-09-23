@@ -1,6 +1,9 @@
 package com.rishikesh.placementprep.modules.auth.service;
 
+import java.util.Collection;
+import java.util.Map;
 import java.util.Optional;
+import java.util.stream.Collectors;
 
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -45,6 +48,22 @@ public class UserService {
     @Transactional(readOnly = true)
     public Optional<UserProfileDTO> findById(Long id) {
         return userRepository.findById(id).map(this::toDto);
+    }
+
+    /**
+     * Email addresses for a set of account ids, in one query.
+     *
+     * <p>Exists so a caller showing a list of people can label every row without issuing a
+     * lookup per row. Returns only the ids that resolved: an id with no account simply has
+     * no entry, which the caller reads as "unknown" rather than as a failure.
+     */
+    @Transactional(readOnly = true)
+    public Map<Long, String> emailsByIds(Collection<Long> ids) {
+        if (ids.isEmpty()) {
+            return Map.of();
+        }
+        return userRepository.findAllById(ids).stream()
+                .collect(Collectors.toMap(User::getId, User::getEmail));
     }
 
     /**

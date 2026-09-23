@@ -2,6 +2,8 @@ package com.rishikesh.placementprep.modules.application.controller;
 
 import java.net.URI;
 import java.util.List;
+import java.util.Map;
+import java.util.stream.Collectors;
 
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -60,10 +62,25 @@ public class ApplicationController {
         return applicationService.findMine(callerId(principal));
     }
 
-    /** Everyone who applied to one drive. Restricted to staff by SecurityConfig. */
+    /**
+     * Everyone who applied to one drive. Restricted to staff by SecurityConfig.
+     *
+     * <p>Each row is labelled with the applicant's email, which the cell needs in order to
+     * review anybody - a bare numeric id is not something a human can act on. The lookup
+     * is one batched query for the whole list rather than one per row, and it happens here
+     * rather than in ApplicationService so that the application module stays independent
+     * of the auth module's storage.
+     */
     @GetMapping("/drive/{driveId}")
     public List<ApplicationDTO> forDrive(@PathVariable Long driveId) {
-        return applicationService.findForDrive(driveId);
+        List<ApplicationDTO> applications = applicationService.findForDrive(driveId);
+
+        Map<Long, String> emails = userService.emailsByIds(
+                applications.stream().map(ApplicationDTO::studentId).collect(Collectors.toSet()));
+
+        return applications.stream()
+                .map(application -> application.withStudentEmail(emails.get(application.studentId())))
+                .toList();
     }
 
     /** The placement cell moving an application along. Restricted by SecurityConfig. */

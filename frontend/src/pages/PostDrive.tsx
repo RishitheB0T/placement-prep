@@ -1,13 +1,18 @@
 import { useEffect, useState, type ReactNode } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useParams } from "react-router-dom";
 
 import { fetchMyProfile } from "../api/auth";
 import { ApiError } from "../api/client";
-import { createDrive } from "../api/drives";
+import { createDrive, fetchDriveById, updateDrive } from "../api/drives";
 import type { UserProfile } from "../api/types";
 
 /**
- * The form the placement cell posts a drive with.
+ * The form the placement cell posts a drive with, and edits one with.
+ *
+ * One component for both because the backend takes the same body either way -
+ * DriveRequest serves POST and PUT alike - so a second form would be the same fields
+ * twice, free to drift apart. The route decides which: /post-drive creates,
+ * /drives/{id}/edit loads that drive and replaces it.
  *
  * Reachable only by TNP_COORDINATOR and TNP_PIC. That is enforced twice, on purpose:
  * SecurityConfig answers a student's POST with a 403 no matter what, which is the real
@@ -16,6 +21,9 @@ import type { UserProfile } from "../api/types";
  */
 export default function PostDrive() {
   const navigate = useNavigate();
+  const { id } = useParams<{ id: string }>();
+  const editingId = id === undefined ? null : Number(id);
+  const isEditing = editingId !== null;
 
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [checkingAccess, setCheckingAccess] = useState(true);
@@ -40,20 +48,44 @@ export default function PostDrive() {
 
   useEffect(() => {
     fetchMyProfile()
-      .then((me) => {
+      .then(async (me) => {
         if (me.role === "STUDENT") {
           navigate("/drives", { replace: true });
           return;
         }
         setProfile(me);
+
+        if (editingId !== null) {
+          const drive = await fetchDriveById(editingId);
+          setForm({
+            companyName: drive.companyName,
+            role: drive.role,
+            ctc: drive.ctc.toString(),
+            tier: drive.tier.toString(),
+            cgpaCutoff: drive.cgpaCutoff?.toString() ?? "",
+            tenthCutoff: drive.tenthCutoff?.toString() ?? "",
+            twelfthCutoff: drive.twelfthCutoff?.toString() ?? "",
+            backlogsAllowed: drive.backlogsAllowed,
+            maxBacklogs: drive.maxBacklogs?.toString() ?? "",
+            eligibleBranches: drive.eligibleBranches.join(", "),
+            // datetime-local wants "YYYY-MM-DDTHH:mm" in local time, not the ISO instant
+            // the API returns, so trim the parts it cannot parse.
+            applicationDeadline: toLocalInput(drive.applicationDeadline),
+            description: drive.description ?? "",
+          });
+        }
+
         setCheckingAccess(false);
       })
       .catch((e) => {
         if (e instanceof ApiError && e.status === 401) {
           navigate("/login", { replace: true });
+          return;
         }
+        setError(e instanceof ApiError ? e.message : "Could not load the drive");
+        setCheckingAccess(false);
       });
-  }, [navigate]);
+  }, [navigate, editingId]);
 
   function set<K extends keyof typeof form>(key: K, value: (typeof form)[K]) {
     setForm((current) => ({ ...current, [key]: value }));
@@ -68,34 +100,43 @@ export default function PostDrive() {
     setError(null);
     setMessage(null);
 
-    try {
-      const created = await createDrive({
-        companyName: form.companyName.trim(),
-        role: form.role.trim(),
-        ctc: Number(form.ctc),
-        tier: Number(form.tier),
-        cgpaCutoff: Number(form.cgpaCutoff),
-        tenthCutoff: optionalNumber(form.tenthCutoff),
-        twelfthCutoff: optionalNumber(form.twelfthCutoff),
-        backlogsAllowed: form.backlogsAllowed,
-        maxBacklogs: form.backlogsAllowed ? optionalNumber(form.maxBacklogs) : null,
-        eligibleBranches: form.eligibleBranches
-          .split(",")
-          .map((b) => b.trim().toUpperCase())
-          .filter((b) => b !== ""),
-        // The backend wants an ISO instant; a datetime-local input gives no timezone, so
-        // new Date(...) interprets it in the browser's own zone before this converts it.
-        applicationDeadline: new Date(form.applicationDeadline).toISOString(),
-        description: form.description.trim() === "" ? null : form.description.trim(),
-      });
+    const body = {
+      companyName: form.companyName.trim(),
+      role: form.role.trim(),
+      ctc: Number(form.ctc),
+      tier: Number(form.tier),
+      cgpaCutoff: Number(form.cgpaCutoff),
+      tenthCutoff: optionalNumber(form.tenthCutoff),
+      twelfthCutoff: optionalNumber(form.twelfthCutoff),
+      backlogsAllowed: form.backlogsAllowed,
+      maxBacklogs: form.backlogsAllowed ? optionalNumber(form.maxBacklogs) : null,
+      eligibleBranches: form.eligibleBranches
+        .split(",")
+        .map((b) => b.trim().toUpperCase())
+        .filter((b) => b !== ""),
+      // The backend wants an ISO instant; a datetime-local input gives no timezone, so
+      // new Date(...) interprets it in the browser's own zone before this converts it.
+      applicationDeadline: new Date(form.applicationDeadline).toISOString(),
+      description: form.description.trim() === "" ? null : form.description.trim(),
+    };
 
+    try {
+      if (isEditing) {
+        await updateDrive(editingId, body);
+        // Straight back to the board: an edit is a correction, and seeing it applied in
+        // the list is the confirmation that matters more than a message on this form.
+        navigate("/drives", { replace: true });
+        return;
+      }
+
+      const created = await createDrive(body);
       setMessage(`Posted ${created.companyName} - ${created.role}.`);
       setForm((current) => ({ ...current, companyName: "", role: "", ctc: "", description: "" }));
     } catch (e) {
       // A 400 here carries a field-level errors map (ValidationErrorHandler on the
       // backend); e.message is the top-level detail, which is still useful even without
       // walking that map field by field.
-      setError(e instanceof ApiError ? e.message : "Could not post the drive");
+      setError(e instanceof ApiError ? e.message : `Could not ${isEditing ? "save" : "post"} the drive`);
     } finally {
       setSaving(false);
     }
@@ -113,7 +154,9 @@ export default function PostDrive() {
     <main className="mx-auto max-w-3xl p-6">
       <header className="flex items-baseline justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-semibold text-slate-900">Post a drive</h1>
+          <h1 className="text-2xl font-semibold text-slate-900">
+            {isEditing ? "Edit drive" : "Post a drive"}
+          </h1>
           {profile && (
             <p className="mt-1 text-sm text-slate-500">
               {profile.email} · {profile.role.replace("TNP_", "")}
@@ -271,7 +314,7 @@ export default function PostDrive() {
           disabled={saving}
           className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-700 disabled:opacity-50"
         >
-          {saving ? "Posting..." : "Post drive"}
+          {saving ? "Saving..." : isEditing ? "Save changes" : "Post drive"}
         </button>
       </form>
     </main>
@@ -279,6 +322,19 @@ export default function PostDrive() {
 }
 
 const inputClass = "mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm";
+
+/**
+ * Turns the API's ISO instant into the "YYYY-MM-DDTHH:mm" a datetime-local input needs.
+ *
+ * Deliberately built from the local-time getters rather than by slicing the ISO string:
+ * the ISO form is UTC, so slicing it would show a deadline in the wrong timezone and an
+ * edit would silently shift it every time the form was saved.
+ */
+function toLocalInput(iso: string): string {
+  const d = new Date(iso);
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
 
 function Field({ label, hint, children }: { label: string; hint?: string; children: ReactNode }) {
   return (

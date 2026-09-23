@@ -218,7 +218,10 @@ export default function Applications() {
             <div className="flex items-baseline justify-between gap-4">
               <h2 className="font-semibold text-slate-900">
                 {view === "applicants"
-                  ? `Student #${application.studentId}`
+                  ? // The backend labels every applicant row with an email. The id is the
+                    // fallback for a row whose account has since gone missing, which the
+                    // lookup reports by simply having no entry for it.
+                    (application.studentEmail ?? `Student #${application.studentId}`)
                   : driveName(application.driveId)}
               </h2>
               <StatusBadge status={application.status} />

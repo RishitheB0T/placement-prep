@@ -194,6 +194,30 @@ class ApplicationApiTest {
                 .andExpect(jsonPath("$.length()").value(2));
     }
 
+    /** A bare numeric id is not something the cell can review anybody on. */
+    @Test
+    void theApplicantListLabelsEveryRowWithTheStudentsEmail() throws Exception {
+        seedApplication(studentId, driveId, ApplicationStatus.APPLIED);
+
+        mockMvc.perform(get("/api/applications/drive/" + driveId)
+                        .header(HttpHeaders.AUTHORIZATION, bearer(picToken)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].studentEmail").value("student@cse.nits.ac.in"));
+    }
+
+    /**
+     * The other direction: a student's own list leaves the email off, because they
+     * already know it and filling it in would cost a lookup per row for nothing.
+     */
+    @Test
+    void myOwnApplicationsCarryNoStudentEmail() throws Exception {
+        seedApplication(studentId, driveId, ApplicationStatus.APPLIED);
+
+        mockMvc.perform(get("/api/applications/me").header(HttpHeaders.AUTHORIZATION, bearer(studentToken)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].studentEmail").value(org.hamcrest.Matchers.nullValue()));
+    }
+
     // ----------------------------------------------------------------- Status
 
     @Test

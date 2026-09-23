@@ -109,6 +109,12 @@ export type ApplicationStatus = "APPLIED" | "SHORTLISTED" | "REJECTED" | "SELECT
 export interface Application {
   id: number;
   studentId: number;
+  /**
+   * Filled in only when the placement cell is reviewing a drive's applicants, where a
+   * bare id is not something a human can act on. Null on a student's own list - they
+   * already know who they are, so the backend skips the lookup.
+   */
+  studentEmail: string | null;
   driveId: number;
   status: ApplicationStatus;
   note: string | null;

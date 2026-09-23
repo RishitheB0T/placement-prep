@@ -45,6 +45,15 @@ export default function App() {
           </ProtectedRoute>
         }
       />
+      {/* The same form, loaded with an existing drive. PostDrive branches on the param. */}
+      <Route
+        path="/drives/:id/edit"
+        element={
+          <ProtectedRoute>
+            <PostDrive />
+          </ProtectedRoute>
+        }
+      />
       {/*
         One page, two views: Applications.tsx itself checks the signed-in role and shows
         "my applications" or "applicants for a drive" accordingly - there is no separate
