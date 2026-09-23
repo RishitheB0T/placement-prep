@@ -415,6 +415,8 @@ property, rather than failing later inside the signing library.
 | Run backend | `backend/` | `.\mvnw.cmd spring-boot:run` |
 | Run frontend | `frontend/` | `npm run dev` |
 | Build frontend | `frontend/` | `npm run build` |
+| Run frontend tests | `frontend/` | `npm test` |
+| Frontend tests, watching | `frontend/` | `npm run test:watch` |
 
 On macOS or Linux use `./mvnw` instead of `.\mvnw.cmd`.
 
@@ -585,7 +587,14 @@ Base path `/api/drives`.
 
 `/api/drives/eligible` takes no parameters. It reads the marks from the signed-in user's
 own profile, so one student can never enumerate what another would qualify for. It answers
-`409` when the caller's profile is not filled in yet.
+`409` when the caller's profile is not filled in yet - though the web UI checks the
+`complete` flag it already holds and skips the call rather than firing a request it knows
+will be refused.
+
+In the web UI, posting and editing share one form: `/post-drive` creates, and
+`/drives/{id}/edit` loads an existing drive into the same fields. `DriveRequest` serves
+both `POST` and `PUT`, so a second form would only be the same fields twice, free to
+drift apart.
 
 A drive is returned when **every** condition holds:
 
@@ -743,7 +752,7 @@ cd backend
 .\mvnw.cmd test
 ```
 
-88 integration tests. They run against a real PostgreSQL container started by
+90 integration tests. They run against a real PostgreSQL container started by
 Testcontainers using the `pgvector/pgvector:pg16` image, so **Docker must be running**.
 Nothing is mocked and no test touches the development database. New integration tests
 should import `TestcontainersConfiguration` rather than pointing at a hand-managed
@@ -753,6 +762,31 @@ The suite generates real signed tokens rather than stubbing the security context
 JWT filter and the authorisation rules are genuinely exercised - including the cases that
 matter most, such as a student being refused a write and a coordinator being refused a
 promotion.
+
+### Frontend
+
+```powershell
+cd frontend
+npm test
+```
+
+36 tests on Vitest and React Testing Library, in jsdom. They need no backend and no
+Docker: every call through `src/api` is stubbed, which is also why `vitest.config.ts` is
+a separate file from `vite.config.ts` - the dev config carries a proxy to `:8081`, and a
+test must never quietly pass because a real server happened to be running.
+
+They are aimed squarely at the role branching, because that is where the bugs have
+actually been. The page once collapsed "can this account manage?" and "is this account a
+student?" into one flag and silently stripped coordinators of the ability to apply to
+anything; `Drives.test.tsx` and `Applications.test.tsx` now asserts all three roles get
+exactly the controls they should, so that cannot come back unnoticed.
+
+| File | Covers |
+| --- | --- |
+| `api/client.test.ts` | the token on every request, RFC 9457 unwrapping, clearing on 401 but not 403, bodiless POST, 204 |
+| `pages/Drives.test.tsx` | Apply vs Delete vs Edit per role, the re-apply-after-withdraw button, and not calling `/eligible` for an incomplete profile |
+| `pages/Applications.test.tsx` | the coordinator's two tabs, applicant emails, withdraw, status changes |
+| `pages/Login.test.tsx` | the Administration tab admitting only `TNP_PIC`, and discarding the token when it refuses |
 
 ## Notes
 
