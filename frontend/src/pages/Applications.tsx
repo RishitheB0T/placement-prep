@@ -14,13 +14,22 @@ import type { Application, ApplicationStatus, Drive, UserProfile } from "../api/
 
 const STATUSES: ApplicationStatus[] = ["APPLIED", "SHORTLISTED", "REJECTED", "SELECTED", "WITHDRAWN"];
 
+/** Which half of this page is on screen. A coordinator can reach both. */
+type View = "mine" | "applicants";
+
 /**
- * A student's own applications, or - for staff - the applicants to a chosen drive.
+ * Two views of the same data, from opposite ends: your own applications, and the
+ * applicants to a drive.
  *
- * Both views live on this one page because they are the same data read from opposite
- * ends, and the backend decides which one a given caller is even allowed to ask for:
- * GET /api/applications/drive/{id} answers 403 for a student, so there is nothing this
- * page could show them here even if it tried.
+ * Which of them an account can reach follows from what it is, and the two are
+ * independent. A student has only the first. The person in charge, being faculty, has
+ * only the second. A coordinator is a student who also runs the board, so they get both
+ * and a tab to switch - defaulting to their own applications, since reviewing needs a
+ * drive picked first anyway.
+ *
+ * The backend decides this too, not just the UI: GET /api/applications/drive/{id}
+ * answers 403 for a plain student, so there is nothing this page could show them there
+ * even if a bug let them click through to it.
  */
 export default function Applications() {
   const navigate = useNavigate();
@@ -29,10 +38,14 @@ export default function Applications() {
   const [applications, setApplications] = useState<Application[]>([]);
   const [drives, setDrives] = useState<Drive[]>([]);
   const [selectedDrive, setSelectedDrive] = useState<number | null>(null);
+  const [view, setView] = useState<View>("mine");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  const isStaff = profile?.role === "TNP_PIC" || profile?.role === "TNP_COORDINATOR";
+  const canManage = profile?.role === "TNP_PIC" || profile?.role === "TNP_COORDINATOR";
+  const isStudent = profile !== null && profile.role !== "TNP_PIC";
+  /** Only a coordinator is both, so only a coordinator needs the switch. */
+  const showTabs = canManage && isStudent;
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -42,8 +55,10 @@ export default function Applications() {
       setProfile(me);
       setDrives(allDrives);
 
-      const staff = me.role === "TNP_PIC" || me.role === "TNP_COORDINATOR";
-      if (!staff) {
+      const student = me.role !== "TNP_PIC";
+      // The PIC has no applications of their own, so they open straight into review.
+      setView(student ? "mine" : "applicants");
+      if (student) {
         setApplications(await fetchMyApplications());
       }
     } catch (e) {
@@ -60,6 +75,22 @@ export default function Applications() {
   useEffect(() => {
     void load();
   }, [load]);
+
+  /** Switching views swaps which list `applications` holds, so it has to refetch. */
+  async function switchView(next: View) {
+    setView(next);
+    setError(null);
+    setSelectedDrive(null);
+    setApplications([]);
+
+    if (next === "mine") {
+      try {
+        setApplications(await fetchMyApplications());
+      } catch (e) {
+        setError(e instanceof ApiError ? e.message : "Could not load your applications");
+      }
+    }
+  }
 
   function handleLogout() {
     logout();
@@ -103,7 +134,7 @@ export default function Applications() {
     <main className="mx-auto max-w-3xl p-6">
       <header className="flex items-baseline justify-between gap-4">
         <h1 className="text-2xl font-semibold text-slate-900">
-          {isStaff ? "Applicants" : "My applications"}
+          {view === "mine" ? "My applications" : "Applicants"}
         </h1>
         <div className="flex gap-2">
           <button
@@ -127,7 +158,18 @@ export default function Applications() {
         </div>
       </header>
 
-      {isStaff && (
+      {showTabs && (
+        <div className="mt-6 flex gap-2 border-b border-slate-200">
+          <TabButton active={view === "mine"} onClick={() => void switchView("mine")}>
+            My applications
+          </TabButton>
+          <TabButton active={view === "applicants"} onClick={() => void switchView("applicants")}>
+            Applicants
+          </TabButton>
+        </div>
+      )}
+
+      {view === "applicants" && canManage && (
         <div className="mt-4">
           <label className="text-sm text-slate-600">
             Drive
@@ -160,7 +202,7 @@ export default function Applications() {
 
       {!loading && applications.length === 0 && (
         <p className="mt-6 text-slate-500">
-          {!isStaff
+          {view === "mine"
             ? "You have not applied to any drives yet."
             : selectedDrive === null
               ? "Choose a drive to see who applied."
@@ -175,7 +217,9 @@ export default function Applications() {
           <li key={application.id} className="rounded-xl border border-slate-200 bg-white p-4">
             <div className="flex items-baseline justify-between gap-4">
               <h2 className="font-semibold text-slate-900">
-                {isStaff ? `Student #${application.studentId}` : driveName(application.driveId)}
+                {view === "applicants"
+                  ? `Student #${application.studentId}`
+                  : driveName(application.driveId)}
               </h2>
               <StatusBadge status={application.status} />
             </div>
@@ -186,7 +230,7 @@ export default function Applications() {
 
             {application.note && <p className="mt-2 text-sm text-slate-600">{application.note}</p>}
 
-            {isStaff ? (
+            {view === "applicants" ? (
               <div className="mt-3 flex flex-wrap gap-2">
                 {STATUSES.filter((s) => s !== "WITHDRAWN" && s !== application.status).map((status) => (
                   <button
@@ -212,6 +256,23 @@ export default function Applications() {
         ))}
       </ul>
     </main>
+  );
+}
+
+/** Same underline treatment as the tabs on the drives board, for consistency. */
+function TabButton(props: { active: boolean; onClick: () => void; children: React.ReactNode }) {
+  return (
+    <button
+      onClick={props.onClick}
+      className={[
+        "-mb-px border-b-2 px-3 py-2 text-sm font-medium",
+        props.active
+          ? "border-slate-900 text-slate-900"
+          : "border-transparent text-slate-500 hover:text-slate-700",
+      ].join(" ")}
+    >
+      {props.children}
+    </button>
   );
 }
 

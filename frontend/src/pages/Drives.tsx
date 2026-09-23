@@ -21,7 +21,12 @@ export default function Drives() {
   /** Set when the backend answers 409: the profile is not filled in yet. */
   const [needsProfile, setNeedsProfile] = useState(false);
 
-  const isStaff = profile?.role === "TNP_PIC" || profile?.role === "TNP_COORDINATOR";
+  // Two independent questions, not one. A coordinator IS a student - one who has been
+  // given the run of the board - so they answer yes to both: they apply to drives like
+  // anyone else, and they manage them. Only the person in charge, an actual member of
+  // faculty with no CGPA to their name, is management and nothing else.
+  const canManage = profile?.role === "TNP_PIC" || profile?.role === "TNP_COORDINATOR";
+  const isStudent = profile !== null && profile.role !== "TNP_PIC";
 
   // useCallback so the effect below does not re-run on every render.
   const load = useCallback(
@@ -36,14 +41,14 @@ export default function Drives() {
         const me = await fetchMyProfile();
         setProfile(me);
 
-        // "Eligible for me" is a student concept - staff have no CGPA or branch on their
-        // account, so /api/drives/eligible would answer 409 for them every time. Staff
-        // always see the full board instead, regardless of which tab is selected.
-        const staff = me.role === "TNP_PIC" || me.role === "TNP_COORDINATOR";
+        // "Eligible for me" is a student concept, and a coordinator is a student, so they
+        // get it too. Only the PIC is excluded: they hold no CGPA or branch, so
+        // /api/drives/eligible would answer 409 for them every time.
+        const student = me.role !== "TNP_PIC";
         const [list, mine] = await Promise.all([
-          staff || which === "all" ? fetchAllDrives() : fetchEligibleDrives(),
-          // Staff have no applications of their own; asking would just waste a request.
-          staff ? Promise.resolve([] as Application[]) : fetchMyApplications(),
+          student && which === "eligible" ? fetchEligibleDrives() : fetchAllDrives(),
+          // The PIC has no applications of their own; asking would waste a request.
+          student ? fetchMyApplications() : Promise.resolve([] as Application[]),
         ]);
         setDrives(list);
         setApplications(mine);
@@ -118,7 +123,7 @@ export default function Drives() {
           )}
         </div>
         <div className="flex gap-2">
-          {isStaff && (
+          {canManage && (
             <button
               onClick={() => navigate("/post-drive")}
               className="rounded-lg bg-slate-900 px-3 py-1.5 text-sm font-medium text-white hover:bg-slate-700"
@@ -130,7 +135,7 @@ export default function Drives() {
             onClick={() => navigate("/applications")}
             className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-100"
           >
-            {isStaff ? "Applicants" : "My applications"}
+            {isStudent ? "My applications" : "Applicants"}
           </button>
           <button
             onClick={() => navigate("/profile")}
@@ -148,11 +153,12 @@ export default function Drives() {
       </header>
 
       {/*
-        Staff always see every drive (load() above ignores this tab for them), so the
-        tab bar itself would be misleading to show - clicking "Eligible for me" would look
-        like it did something while quietly serving the same "all drives" list underneath.
+        Shown to anyone who is a student, coordinators included. Hidden only from the PIC,
+        for whom load() always serves the full board - leaving the tabs up would be
+        misleading, since clicking "Eligible for me" would appear to do something while
+        quietly serving the same list underneath.
       */}
-      {!isStaff && (
+      {isStudent && (
         <div className="mt-6 flex gap-2 border-b border-slate-200">
           <TabButton active={tab === "eligible"} onClick={() => setTab("eligible")}>
             Eligible for me
@@ -191,7 +197,7 @@ export default function Drives() {
 
       {!loading && !error && !needsProfile && drives.length === 0 && (
         <p className="mt-6 text-slate-500">
-          {!isStaff && tab === "eligible"
+          {isStudent && tab === "eligible"
             ? "No open drives match your profile right now."
             : "No drives have been posted yet."}
         </p>
@@ -202,7 +208,8 @@ export default function Drives() {
           <DriveCard
             key={drive.id}
             drive={drive}
-            isStaff={isStaff}
+            canManage={canManage}
+            isStudent={isStudent}
             application={applicationFor(drive.id)}
             onDelete={() => void handleDelete(drive)}
             onApply={() => void handleApply(drive)}
@@ -235,13 +242,15 @@ function TabButton(props: {
 
 function DriveCard({
   drive,
-  isStaff,
+  canManage,
+  isStudent,
   application,
   onDelete,
   onApply,
 }: {
   drive: Drive;
-  isStaff: boolean;
+  canManage: boolean;
+  isStudent: boolean;
   application?: Application;
   onDelete: () => void;
   onApply: () => void;
@@ -294,29 +303,37 @@ function DriveCard({
         <p className="mt-3 text-sm text-slate-600">{drive.description}</p>
       )}
 
-      <div className="mt-4">
-        {isStaff ? (
+      {/*
+        Both halves can appear at once, and for a coordinator they do: applying is
+        something they do as a student, deleting is something they do as the cell. The
+        two are independent, so this is two checks rather than one either/or.
+      */}
+      <div className="mt-4 flex flex-wrap items-center gap-2">
+        {isStudent &&
+          (application && application.status !== "WITHDRAWN" ? (
+            <span className="rounded-lg bg-slate-100 px-3 py-1.5 text-sm font-medium text-slate-600">
+              {application.status === "APPLIED" ? "Applied" : application.status.toLowerCase()}
+            </span>
+          ) : (
+            // No application yet, or the previous one was withdrawn - either way the
+            // backend accepts a fresh POST here. A withdrawn row reopens rather than
+            // duplicates, since applying is blocked only by an active or decided
+            // application, not by history.
+            <button
+              onClick={onApply}
+              disabled={closed}
+              className="rounded-lg bg-slate-900 px-3 py-1.5 text-sm font-medium text-white hover:bg-slate-700 disabled:opacity-40"
+            >
+              {closed ? "Closed" : "Apply"}
+            </button>
+          ))}
+
+        {canManage && (
           <button
             onClick={onDelete}
             className="rounded-lg border border-red-300 px-3 py-1.5 text-sm font-medium text-red-700 hover:bg-red-50"
           >
             Delete
-          </button>
-        ) : application && application.status !== "WITHDRAWN" ? (
-          <span className="rounded-lg bg-slate-100 px-3 py-1.5 text-sm font-medium text-slate-600">
-            {application.status === "APPLIED" ? "Applied" : application.status.toLowerCase()}
-          </span>
-        ) : (
-          // No application yet, or the previous one was withdrawn - either way the
-          // backend accepts a fresh POST here. A withdrawn row reopens rather than
-          // duplicates, since applying is blocked only by an active or decided
-          // application, not by history.
-          <button
-            onClick={onApply}
-            disabled={closed}
-            className="rounded-lg bg-slate-900 px-3 py-1.5 text-sm font-medium text-white hover:bg-slate-700 disabled:opacity-40"
-          >
-            {closed ? "Closed" : "Apply"}
           </button>
         )}
       </div>

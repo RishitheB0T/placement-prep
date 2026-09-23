@@ -184,8 +184,10 @@ The rule list in `SecurityConfig` in one picture. Everything not drawn here fall
 to `anyRequest().authenticated()` — a default deny, so a new endpoint is locked until a
 rule is written for it.
 
-Roles are cumulative: each tier below can do everything the tier above it can, plus what
-its own box lists.
+Roles are cumulative *up to the coordinator* — a coordinator is a student who also runs the
+board, so they keep every student endpoint. The person in charge breaks the chain: they are
+faculty rather than a student, so they hold the cell's tools and their own extras but none
+of the student tier.
 
 ```mermaid
 flowchart TD
@@ -195,10 +197,10 @@ flowchart TD
 
     T2["<b>📋 TNP_COORDINATOR</b> — the above, plus<br/>━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━<br/>POST /api/drives<br/>PUT /api/drives/{id}<br/>DELETE /api/drives/{id}<br/>GET /api/applications/drive/{driveId}<br/>PATCH /api/applications/{id}/status"]
 
-    T3["<b>⭐ TNP_PIC</b> — the above, plus<br/>━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━<br/>POST /api/users/{id}/promote<br/>PUT /api/users/me/staff-profile<br/><br/><i>and the Administration sign-in tab</i>"]
+    T3["<b>⭐ TNP_PIC</b> — the cell's tools, plus<br/>━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━<br/>POST /api/users/{id}/promote<br/>PUT /api/users/me/staff-profile<br/>and the Administration sign-in tab<br/><br/><i>but NOT the student tier — faculty,<br/>so no CGPA and no applying</i>"]
 
     T0 -->|"sign in"| T1
-    T1 -->|"promoted by a PIC"| T2
+    T1 -->|"promoted by a PIC —<br/>keeps every student ability"| T2
     T2 -->|"seeded in the database only —<br/>no API route grants this"| T3
 
     T1 -.->|"403 — a coordinator's<br/>endpoints are closed"| T2
@@ -435,7 +437,24 @@ privilege takes effect on the next call rather than whenever the token happens t
 | --- | --- |
 | `STUDENT` | read the board, see their own eligible drives, edit their own academic profile, apply to and withdraw from drives |
 | `TNP_COORDINATOR` | everything a student may, plus create, edit and delete drives, and review/decide applications |
-| `TNP_PIC` | everything a coordinator may, plus promote a student to coordinator, edit their own staff details, and use the Administration sign-in |
+| `TNP_PIC` | manages the board and applications like a coordinator, plus promotes students to coordinator, edits their own staff details, and uses the Administration sign-in. **Not a student** - holds no CGPA, cannot apply to drives |
+
+**A coordinator is a student.** They are a final-year student who also helps run the cell,
+so they keep everything a student has - an academic profile, an eligibility list, the
+ability to apply to and withdraw from drives - and gain the board and applicant tools on
+top. The interface reflects that: a coordinator sees the "Eligible for me" tab and an
+**Apply** button *and* a **Delete** button on the same drive card, and gets both a "My
+applications" and an "Applicants" tab.
+
+The person in charge is the exception. They are faculty, not a student, which is why the
+`CHECK` constraint gives them the staff columns and why the UI gives them no eligibility
+tab and no Apply button - `/api/drives/eligible` would answer `409` for an account with no
+CGPA anyway.
+
+So "is this account management?" and "is this account a student?" are two independent
+questions, and the frontend asks them separately rather than collapsing both into one
+`isStaff` flag - doing that is precisely what once left coordinators unable to apply to
+anything.
 
 Registration always creates a `STUDENT`. There is deliberately no role field on the
 registration request - if clients could choose, anyone could sign up as staff and publish
