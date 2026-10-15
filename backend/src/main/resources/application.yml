@@ -44,6 +44,12 @@ spring:
     enabled: true
     locations: classpath:db/migration
 
+  ai:
+    anthropic:
+      # Unset by default, same convention as jwt.secret below: nothing real is
+      # hard-coded, and the agent module has nothing to call without this set.
+      api-key: ${ANTHROPIC_API_KEY:}
+
 management:
   endpoints:
     web:

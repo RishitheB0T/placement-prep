@@ -29,6 +29,24 @@
 	<properties>
 		<java.version>21</java.version>
 	</properties>
+
+	<!--
+		Spring AI's BOM, imported the same way spring-boot-starter-parent manages every
+		other dependency's version - so spring-ai-starter-model-anthropic below needs no
+		version of its own.
+	-->
+	<dependencyManagement>
+		<dependencies>
+			<dependency>
+				<groupId>org.springframework.ai</groupId>
+				<artifactId>spring-ai-bom</artifactId>
+				<version>2.0.1</version>
+				<type>pom</type>
+				<scope>import</scope>
+			</dependency>
+		</dependencies>
+	</dependencyManagement>
+
 	<dependencies>
 		<dependency>
 			<groupId>org.springframework.boot</groupId>
@@ -57,6 +75,16 @@
 		<dependency>
 			<groupId>org.flywaydb</groupId>
 			<artifactId>flyway-database-postgresql</artifactId>
+		</dependency>
+
+		<!--
+			Chat model client for the agent module - ChatClient, plus @Tool / function
+			calling, both ship as part of this starter rather than needing a separate
+			dependency.
+		-->
+		<dependency>
+			<groupId>org.springframework.ai</groupId>
+			<artifactId>spring-ai-starter-model-anthropic</artifactId>
 		</dependency>
 
 		<!-- Creates and verifies JWTs. Spring Security has no built-in library for this. -->
