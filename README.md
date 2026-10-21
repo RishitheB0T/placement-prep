@@ -13,8 +13,12 @@ help them prepare.
 | Accounts, login and three-tier roles | **Built** - Spring Security + JWT |
 | Separate Administration sign-in and staff profile for the person in charge | **Built** |
 | Web UI - register, sign in, profile, drives board, applications, posting a drive | **Built** |
-| Resume upload with AI feedback | Planned - background job queue |
-| Q&A over placement notices | Planned - RAG with Spring AI + pgvector |
+| Role dashboards - a student, recruiter and admin view, with the admin promoting students to recruiter | **Built** |
+| Running in Docker - backend and frontend images, one `docker compose` command | **Built** |
+| Resume upload with AI feedback | **Built** - PDF reviewed by Claude via Spring AI in a background job; needs `ANTHROPIC_API_KEY` |
+| AI assistant | **Built** - Spring AI `@Tool` calling: the model calls backend service methods (eligible drives, my applications, apply, job-description search) from plain-English messages; needs `ANTHROPIC_API_KEY` |
+| Job-description search by meaning (RAG) | **Built** - uploaded JD PDFs are split, embedded by a local model and stored in pgvector; works without any API key |
+| Q&A over placement notices | Planned - same RAG pipeline, over notices |
 | Company-wise AI mock interviews | Planned |
 | Deadline reminders | Planned - scheduled jobs |
 
@@ -24,8 +28,8 @@ The first TNP account (the person in charge) is seeded by a migration - see
 ## Stack
 
 **Backend** - Java 21, Maven, Spring Boot 4.1, Spring Web MVC, Spring Security 7, Bean
-Validation, Spring Data JPA, Flyway, Actuator, Testcontainers.
-**Frontend** - React 19, TypeScript, Vite, Tailwind CSS v4, React Router v7.
+Validation, Spring Data JPA, Flyway, Spring AI 2.0 (Anthropic), Actuator, Testcontainers.
+**Frontend** - React 19, TypeScript, Vite, Tailwind CSS v4, React Router v7, Axios.
 **Infrastructure** - PostgreSQL 16 with the pgvector extension, via Docker Compose.
 
 ## How it fits together
@@ -379,6 +383,26 @@ npm run dev
 Open http://localhost:5173, register with a college address, fill in your profile, and the
 drives board will show what you qualify for.
 
+### Everything in Docker
+
+The whole application - database, backend and frontend - can also run in containers, with
+no JDK or Node installed:
+
+```powershell
+docker compose --profile app up -d --build
+```
+
+Then open **http://localhost:3000**. The frontend container is nginx serving the built
+React app and forwarding `/api` to the backend container, so the browser sees one address,
+exactly as with the Vite proxy in development. Without `--profile app`, `docker compose
+up -d` still starts only the database. Set `ANTHROPIC_API_KEY` in your shell first to
+switch on the AI features. The backend's first start downloads the embedding model (about
+350 MB with its PyTorch library) into the `placementprep-backend-data` volume, so later
+starts are quick.
+
+Run either this or the mvnw backend against the database, not both at once: each one runs
+the resume-review job, and that queue assumes a single backend.
+
 ### Ports
 
 PostgreSQL is published on host port **5433**, not the usual 5432, and the backend listens
@@ -410,6 +434,8 @@ property, rather than failing later inside the signing library.
 | Start database | root | `docker compose up -d` |
 | Stop database | root | `docker compose down` |
 | Reset database (deletes data) | root | `docker compose down -v` |
+| Run the whole app in Docker | root | `docker compose --profile app up -d --build` |
+| Stop the whole app | root | `docker compose --profile app down` |
 | Run backend tests | `backend/` | `.\mvnw.cmd test` |
 | Full backend build + tests | `backend/` | `.\mvnw.cmd verify` |
 | Run backend | `backend/` | `.\mvnw.cmd spring-boot:run` |
@@ -437,9 +463,15 @@ privilege takes effect on the next call rather than whenever the token happens t
 
 | Role | May do |
 | --- | --- |
-| `STUDENT` | read the board, see their own eligible drives, edit their own academic profile, apply to and withdraw from drives |
-| `TNP_COORDINATOR` | everything a student may, plus create, edit and delete drives, and review/decide applications |
-| `TNP_PIC` | manages the board and applications like a coordinator, plus promotes students to coordinator, edits their own staff details, and uses the Administration sign-in. **Not a student** - holds no CGPA, cannot apply to drives |
+| `STUDENT` - shown as **Student** | read the board, see their own eligible drives, edit their own academic profile, apply to and withdraw from drives, resume feedback, the AI assistant |
+| `TNP_COORDINATOR` - shown as **Recruiter** | everything a student may, plus create, edit and delete drives, upload job-description PDFs, and review/decide applications |
+| `TNP_PIC` - shown as **Admin** | manages the board and applications like a recruiter, plus promotes students to recruiter, edits their own staff details, and uses the Administration sign-in. **Not a student** - holds no CGPA, cannot apply to drives |
+
+The code and the database keep the original names; the UI shows the plain words for what
+each account does. In the browser, `ProtectedRoute` also takes a list of roles per route,
+so each role gets its own set of pages - a student is sent back to the board from
+`/post-drive`, and the admin from `/resumes` and `/assistant`. That is a convenience; the
+backend's 403 is what actually enforces it.
 
 **A coordinator is a student.** They are a final-year student who also helps run the cell,
 so they keep everything a student has - an academic profile, an eligibility list, the
@@ -752,11 +784,22 @@ cd backend
 .\mvnw.cmd test
 ```
 
-90 integration tests. They run against a real PostgreSQL container started by
-Testcontainers using the `pgvector/pgvector:pg16` image, so **Docker must be running**.
-Nothing is mocked and no test touches the development database. New integration tests
-should import `TestcontainersConfiguration` rather than pointing at a hand-managed
-database.
+161 tests on JUnit (Jupiter 6, the line Spring Boot 4 ships) in two kinds:
+
+- **Integration tests** (`*ApiTest`) run against a real PostgreSQL container started by
+  Testcontainers using the `pgvector/pgvector:pg16` image, so **Docker must be running**.
+  Nothing is mocked and no test touches the development database. New integration tests
+  should import `TestcontainersConfiguration` rather than pointing at a hand-managed
+  database. `AgentApiTest` points Spring AI at a small fake Anthropic server, so the whole
+  tool-calling loop runs without a paid API key.
+- **Unit tests** (`*ServiceTest`, `AssistantToolsTest`) test one service-layer class with
+  its dependencies replaced by Mockito mocks - no Spring context, no database. Every
+  service class has one: auth, user, drive, application, resume, job-description and the
+  assistant's tools. The one exception is AgentService, whose only job is talking to the
+  model; AgentApiTest covers it end to end instead.
+
+The first run downloads the local embedding model and its runtime (about 350 MB, cached
+in `~/.placementprep/models` and `~/.djl.ai` afterwards).
 
 The suite generates real signed tokens rather than stubbing the security context, so the
 JWT filter and the authorisation rules are genuinely exercised - including the cases that
@@ -770,7 +813,7 @@ cd frontend
 npm test
 ```
 
-36 tests on Vitest and React Testing Library, in jsdom. They need no backend and no
+60 tests on Vitest and React Testing Library, in jsdom. They need no backend and no
 Docker: every call through `src/api` is stubbed, which is also why `vitest.config.ts` is
 a separate file from `vite.config.ts` - the dev config carries a proxy to `:8081`, and a
 test must never quietly pass because a real server happened to be running.
@@ -787,6 +830,19 @@ exactly the controls they should, so that cannot come back unnoticed.
 | `pages/Drives.test.tsx` | Apply vs Delete vs Edit per role, the re-apply-after-withdraw button, and not calling `/eligible` for an incomplete profile |
 | `pages/Applications.test.tsx` | the coordinator's two tabs, applicant emails, withdraw, status changes |
 | `pages/Login.test.tsx` | the Administration tab admitting only `TNP_PIC`, and discarding the token when it refuses |
+| `pages/Resumes.test.tsx` | the finished review, retry, refusing a non-PDF before upload, uploading |
+| `pages/Assistant.test.tsx` | chat replies and follow-ups, the "not switched on" message, job-description search |
+| `pages/Dashboard.test.tsx` | each role's own dashboard, and each asking only for what that role may see; the admin promoting a student |
+| `components/ProtectedRoute.test.tsx` | each role let into its own pages and sent back from the others |
+
+### Postman
+
+[`postman/placement-prep.postman_collection.json`](postman/placement-prep.postman_collection.json)
+covers every REST endpoint, including the role-based rules: each restricted endpoint is
+called once by a role that may use it and once by one that may not. Import it into
+Postman and run the folders in order against a running backend (set `baseUrl` if it is
+not `http://localhost:8081`); file uploads use the two sample PDFs next to it. Each run
+leaves behind one `postman.<timestamp>@cse.nits.ac.in` account.
 
 ## Notes
 

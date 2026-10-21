@@ -21,6 +21,19 @@ jobs:
           distribution: temurin
           cache: maven
 
+      # The local embedding model behind job-description search, and the PyTorch
+      # library it runs on, download on first use - about 350 MB together. Every CI run
+      # starts on a fresh machine, so without this they would download on every run. The
+      # key names the pinned model revision (application.yml) and the DJL version, so a
+      # change to either fetches the new files once instead of reusing stale ones.
+      - name: Cache embedding model and PyTorch library
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.placementprep/models
+            ~/.djl.ai
+          key: embedding-${{ runner.os }}-all-MiniLM-L6-v2-1110a243-djl-0.36.0
+
       # `verify` compiles, runs the tests, and packages the jar. The context test
       # starts a real PostgreSQL container, which works because GitHub's Ubuntu
       # runners have Docker available out of the box.

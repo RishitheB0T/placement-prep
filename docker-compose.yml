@@ -1,3 +1,7 @@
+# `docker compose up -d` starts only the database, for development with mvnw and npm.
+# `docker compose --profile app up -d --build` starts the whole application in containers:
+# the database, the backend and the frontend, served at http://localhost:3000.
+
 services:
   postgres:
     image: pgvector/pgvector:pg16
@@ -18,5 +22,42 @@ services:
       retries: 5
       start_period: 30s
 
+  # The Spring Boot API. No published port: nginx in the frontend container forwards
+  # /api to it over the network the containers share, so nothing outside needs to reach
+  # it directly - and it cannot clash with a backend started on 8081 with mvnw.
+  backend:
+    profiles: ["app"]
+    build: ./backend
+    container_name: placementprep-backend
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      # "postgres" is the service above; inside the network it listens on 5432.
+      DB_URL: jdbc:postgresql://postgres:5432/placementprep
+      DB_USERNAME: placementprep
+      DB_PASSWORD: placementprep
+      # Taken from your shell when set; the fallbacks match application.yml.
+      JWT_SECRET: ${JWT_SECRET:-local-development-only-secret-change-me-in-production}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+    volumes:
+      # Uploaded resumes, the embedding model and its PyTorch library, kept across
+      # container rebuilds - see backend/Dockerfile.
+      - placementprep-backend-data:/data
+
+  # nginx serving the built React app and forwarding /api to the backend.
+  frontend:
+    profiles: ["app"]
+    build: ./frontend
+    container_name: placementprep-frontend
+    restart: unless-stopped
+    depends_on:
+      - backend
+    ports:
+      # 3000 rather than 80 or 8080 - 8080 is taken on the development laptop.
+      - "3000:80"
+
 volumes:
   placementprep-pgdata:
+  placementprep-backend-data:

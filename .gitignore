@@ -7,6 +7,9 @@ dist/
 dist-ssr/
 *.local
 
+# ---- Uploaded files (resume storage on a developer's machine) ----
+uploads/
+
 # ---- Environment files (may hold secrets) ----
 .env
 .env.local
