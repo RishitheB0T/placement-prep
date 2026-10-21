@@ -201,7 +201,7 @@ flowchart TD
 
     T2["<b>📋 TNP_COORDINATOR</b> — the above, plus<br/>━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━<br/>POST /api/drives<br/>PUT /api/drives/{id}<br/>DELETE /api/drives/{id}<br/>GET /api/applications/drive/{driveId}<br/>PATCH /api/applications/{id}/status"]
 
-    TR["<b>💼 RECRUITER</b> — hiring tools only<br/>━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━<br/>the coordinator's drive and applicant tools<br/>and the Recruiter sign-in tab<br/><br/><i>but NOT the student tier — a company<br/>contact, so no profile and no applying</i>"]
+    TR["<b>💼 RECRUITER</b> — hiring tools only<br/>━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━<br/>the drive and applicant tools,<br/>for drives they posted only<br/>and the Recruiter sign-in tab<br/><br/><i>but NOT the student tier — a company<br/>contact, so no profile and no applying</i>"]
 
     T3["<b>⭐ TNP_PIC</b> — the hiring tools, plus<br/>━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━<br/>POST /api/users/{id}/promote<br/>POST /api/users/recruiters<br/>GET /api/users<br/>PUT /api/users/me/staff-profile<br/>and the Administration sign-in tab<br/><br/><i>but NOT the student tier — faculty,<br/>so no CGPA and no applying</i>"]
 
@@ -470,7 +470,7 @@ privilege takes effect on the next call rather than whenever the token happens t
 | --- | --- |
 | `STUDENT` - shown as **Student** | read the board, see their own eligible drives, edit their own academic profile, apply to and withdraw from drives, resume feedback, the AI assistant |
 | `TNP_COORDINATOR` - shown as **Coordinator** | everything a student may, plus create, edit and delete drives, upload job-description PDFs, and review/decide applications |
-| `RECRUITER` - shown as **Recruiter** | a company's hiring contact: create, edit and delete drives, upload job-description PDFs, and review/decide applications. **Not a student** - no academic profile, cannot apply, no resume feedback or assistant. Signs in with a company email on the Recruiter tab |
+| `RECRUITER` - shown as **Recruiter** | a company's hiring contact: create, edit and delete **their own** drives, upload job-description PDFs for them, and review/decide applications to them - other drives are invisible. **Not a student** - no academic profile, cannot apply, no resume feedback or assistant. Signs in with a company email on the Recruiter tab |
 | `TNP_PIC` - shown as **Admin** | manages the board and applications like a recruiter, plus adds recruiters, promotes students to coordinator, lists every account, edits their own staff details, and uses the Administration sign-in. **Not a student** - holds no CGPA, cannot apply to drives |
 
 The code and the database keep the original names; the UI shows the plain words for what
@@ -496,6 +496,20 @@ gets the staff columns, through the `CHECK` constraint.
 Recruiters cannot register themselves: registration is for college addresses only. The PIC
 adds a recruiter with `POST /api/users/recruiters` (a company email and a first password),
 from the **Recruiters** tab of the People panel on the admin dashboard.
+
+**A recruiter sees only their own drives.** Every drive records who posted it
+(`drives.created_by`, added in V14). For a recruiter, the board, a drive by id, editing,
+deleting, uploading a job description, the applicant list, status changes and the
+dashboard counts are all limited to drives they posted - anyone else's drive answers
+`404`, exactly like one that does not exist, so a recruiter cannot even learn which ids
+other companies' drives have. Job-description search spans every company, so it is closed
+to recruiters (`403`). Coordinators and the PIC still see the whole board, recruiters'
+drives included.
+
+How it is built: `UserProfileDTO.driveScope()` turns the signed-in account into a scope -
+the recruiter's own id, or empty for every other role - and the controllers pass that to
+`DriveService`, where one private `findVisible(id, scope)` applies the rule for every
+scoped read and write. Services still never see a web type or a role, just an optional id.
 
 So "is this account management?" and "is this account a student?" are two independent
 questions, and the frontend asks them separately rather than collapsing both into one
@@ -795,6 +809,7 @@ Flyway stores a checksum of each file and refuses to start if one changes.
 | `V11__create_resumes_table.sql` | the `resumes` table, which doubles as the review job queue |
 | `V12__create_job_description_chunks_table.sql` | the pgvector table of job-description passages, with an HNSW index |
 | `V13__add_recruiter_role.sql` | allows the `RECRUITER` role |
+| `V14__add_created_by_to_drives.sql` | who posted each drive, so a recruiter sees only their own |
 
 ## Testing
 
@@ -803,7 +818,7 @@ cd backend
 .\mvnw.cmd test
 ```
 
-170 tests on JUnit (Jupiter 6, the line Spring Boot 4 ships) in two kinds:
+179 tests on JUnit (Jupiter 6, the line Spring Boot 4 ships) in two kinds:
 
 - **Integration tests** (`*ApiTest`) run against a real PostgreSQL container started by
   Testcontainers using the `pgvector/pgvector:pg16` image, so **Docker must be running**.
@@ -832,7 +847,7 @@ cd frontend
 npm test
 ```
 
-65 tests on Vitest and React Testing Library, in jsdom. They need no backend and no
+66 tests on Vitest and React Testing Library, in jsdom. They need no backend and no
 Docker: every call through `src/api` is stubbed, which is also why `vitest.config.ts` is
 a separate file from `vite.config.ts` - the dev config carries a proxy to `:8081`, and a
 test must never quietly pass because a real server happened to be running.

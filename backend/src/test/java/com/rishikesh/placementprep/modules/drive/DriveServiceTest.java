@@ -17,6 +17,7 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.data.domain.Sort;
 
 import com.rishikesh.placementprep.modules.drive.dto.DriveDTO;
 import com.rishikesh.placementprep.modules.drive.dto.DriveRequest;
@@ -49,13 +50,14 @@ class DriveServiceTest {
             return drive;
         });
 
-        DriveDTO created = driveService.createDrive(request("Zoho"));
+        DriveDTO created = driveService.createDrive(request("Zoho"), 5L);
 
         ArgumentCaptor<Drive> saved = ArgumentCaptor.forClass(Drive.class);
         verify(driveRepository).save(saved.capture());
         assertThat(saved.getValue().getCompanyName()).isEqualTo("Zoho");
         assertThat(saved.getValue().getCgpaCutoff()).isEqualByComparingTo("7.5");
         assertThat(saved.getValue().getEligibleBranches()).containsExactly("CSE", "ECE");
+        assertThat(saved.getValue().getCreatedBy()).isEqualTo(5L);
         assertThat(created.id()).isEqualTo(42L);
     }
 
@@ -63,7 +65,7 @@ class DriveServiceTest {
     void updateDriveReturnsEmptyAndSavesNothingForAnUnknownId() {
         when(driveRepository.findById(99L)).thenReturn(Optional.empty());
 
-        assertThat(driveService.updateDrive(99L, request("Zoho"))).isEmpty();
+        assertThat(driveService.updateDrive(99L, request("Zoho"), Optional.empty())).isEmpty();
         verify(driveRepository, never()).save(any());
     }
 
@@ -75,26 +77,77 @@ class DriveServiceTest {
         when(driveRepository.findById(7L)).thenReturn(Optional.of(existing));
         when(driveRepository.save(existing)).thenReturn(existing);
 
-        Optional<DriveDTO> updated = driveService.updateDrive(7L, request("New name"));
+        Optional<DriveDTO> updated = driveService.updateDrive(7L, request("New name"), Optional.empty());
 
         assertThat(updated).get().extracting(DriveDTO::companyName).isEqualTo("New name");
     }
 
-    /** Spring Data's deleteById is silent about a missing row, so the service checks first. */
+    /** Spring Data's delete is silent about a missing row, so the service looks first. */
     @Test
     void deleteDriveReportsFalseAndDeletesNothingForAnUnknownId() {
-        when(driveRepository.existsById(99L)).thenReturn(false);
+        when(driveRepository.findById(99L)).thenReturn(Optional.empty());
 
-        assertThat(driveService.deleteDrive(99L)).isFalse();
-        verify(driveRepository, never()).deleteById(any());
+        assertThat(driveService.deleteDrive(99L, Optional.empty())).isFalse();
+        verify(driveRepository, never()).delete(any());
     }
 
     @Test
     void deleteDriveDeletesAnExistingDrive() {
-        when(driveRepository.existsById(7L)).thenReturn(true);
+        Drive existing = drive(7L, null);
+        when(driveRepository.findById(7L)).thenReturn(Optional.of(existing));
 
-        assertThat(driveService.deleteDrive(7L)).isTrue();
-        verify(driveRepository).deleteById(7L);
+        assertThat(driveService.deleteDrive(7L, Optional.empty())).isTrue();
+        verify(driveRepository).delete(existing);
+    }
+
+    // ------------------------------------------------- A recruiter's scope
+
+    @Test
+    void aRecruiterListsOnlyTheDrivesTheyPosted() {
+        when(driveRepository.findByCreatedByOrderByCreatedAtDesc(5L)).thenReturn(List.of(drive(7L, 5L)));
+
+        assertThat(driveService.findAllDrives(Optional.of(5L))).extracting(DriveDTO::id).containsExactly(7L);
+        verify(driveRepository, never()).findAll(any(Sort.class));
+    }
+
+    /** Another recruiter's drive looks exactly like a drive that does not exist. */
+    @Test
+    void aRecruiterCannotSeeEditOrDeleteSomebodyElsesDrive() {
+        when(driveRepository.findById(7L)).thenReturn(Optional.of(drive(7L, 6L)));
+
+        assertThat(driveService.findDriveById(7L, Optional.of(5L))).isEmpty();
+        assertThat(driveService.updateDrive(7L, request("Hijacked"), Optional.of(5L))).isEmpty();
+        assertThat(driveService.deleteDrive(7L, Optional.of(5L))).isFalse();
+        verify(driveRepository, never()).save(any());
+        verify(driveRepository, never()).delete(any());
+    }
+
+    /** A drive posted before created_by existed belongs to the cell, not to any recruiter. */
+    @Test
+    void aRecruiterCannotSeeADriveWithNoRecordedPoster() {
+        when(driveRepository.findById(7L)).thenReturn(Optional.of(drive(7L, null)));
+
+        assertThat(driveService.findDriveById(7L, Optional.of(5L))).isEmpty();
+        assertThat(driveService.findDriveById(7L, Optional.empty())).isPresent();
+    }
+
+    @Test
+    void anUpdateNeverChangesWhoPostedTheDrive() {
+        Drive existing = drive(7L, 5L);
+        when(driveRepository.findById(7L)).thenReturn(Optional.of(existing));
+        when(driveRepository.save(existing)).thenReturn(existing);
+
+        driveService.updateDrive(7L, request("New name"), Optional.of(5L));
+
+        assertThat(existing.getCreatedBy()).isEqualTo(5L);
+    }
+
+    private static Drive drive(Long id, Long createdBy) {
+        Drive drive = new Drive();
+        drive.setId(id);
+        drive.setCompanyName("Zoho");
+        drive.setCreatedBy(createdBy);
+        return drive;
     }
 
     private static DriveRequest request(String company) {

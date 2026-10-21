@@ -144,11 +144,16 @@ export default function Drives() {
   const activeApplications = applications.filter((a) => a.status !== "WITHDRAWN");
   const topCtc = drives.length === 0 ? 0 : Math.max(...drives.map((d) => d.ctc));
 
+  // The backend serves a recruiter only the drives they posted, so the page says so.
+  const isRecruiter = profile?.role === "RECRUITER";
+
   const subtitle = isStudent
     ? tab === "eligible"
       ? "Drives your profile qualifies for, soonest deadline first. Apply in one click."
       : "Every drive on the board, newest first."
-    : "Everything on the board. Post new drives, keep details current, and remove old ones.";
+    : isRecruiter
+      ? "The drives you have posted. Keep details current, and remove old ones."
+      : "Everything on the board. Post new drives, keep details current, and remove old ones.";
 
   return (
     <>
@@ -156,8 +161,10 @@ export default function Drives() {
 
       <main className="mx-auto max-w-6xl px-4 pt-8 pb-16">
         <PageHero
-          eyebrow={profile ? (isStudent ? "Placement season" : "Training and placement cell") : undefined}
-          title="Placement drives"
+          eyebrow={
+            profile ? (isStudent ? "Placement season" : isRecruiter ? "Recruiter" : "Training and placement cell") : undefined
+          }
+          title={isRecruiter ? "Your drives" : "Placement drives"}
           subtitle={subtitle}
         >
           {profile && isStudent && (profile.branch || profile.cgpa !== null) && (
@@ -230,7 +237,9 @@ export default function Drives() {
             <EmptyState icon="inbox" title="Nothing here yet">
               {isStudent && tab === "eligible"
                 ? "No open drives match your profile right now."
-                : "No drives have been posted yet."}
+                : isRecruiter
+                  ? "You have not posted a drive yet. Use \"Post a drive\" to add your company's first one."
+                  : "No drives have been posted yet."}
             </EmptyState>
           )}
 

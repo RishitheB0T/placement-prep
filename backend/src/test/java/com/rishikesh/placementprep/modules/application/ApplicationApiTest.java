@@ -1,6 +1,7 @@
 package com.rishikesh.placementprep.modules.application;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -257,14 +258,17 @@ class ApplicationApiTest {
                 .andExpect(jsonPath("$.note").value("Strong fundamentals."));
     }
 
-    /** A company's recruiter reviews applicants the same way the cell does. */
-    @Test
-    void aRecruiterCanSeeApplicantsAndShortlistThem() throws Exception {
-        createUser("hr@zoho.com", Role.RECRUITER);
-        String recruiterToken = jwtService.generateToken("hr@zoho.com", Role.RECRUITER);
-        Application application = seedApplication(studentId, driveId, ApplicationStatus.APPLIED);
+    // ------------------------------------------- A recruiter's own drives only
 
-        mockMvc.perform(get("/api/applications/drive/" + driveId)
+    /** A company's recruiter reviews applicants to the drives they posted. */
+    @Test
+    void aRecruiterCanSeeApplicantsToTheirOwnDriveAndShortlistThem() throws Exception {
+        Long recruiterId = createUser("hr@zoho.com", Role.RECRUITER).getId();
+        String recruiterToken = jwtService.generateToken("hr@zoho.com", Role.RECRUITER);
+        Long ownDrive = seedDrive("Zoho", recruiterId).getId();
+        Application application = seedApplication(studentId, ownDrive, ApplicationStatus.APPLIED);
+
+        mockMvc.perform(get("/api/applications/drive/" + ownDrive)
                         .header(HttpHeaders.AUTHORIZATION, bearer(recruiterToken)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$[0].studentEmail").value("student@cse.nits.ac.in"));
@@ -277,6 +281,106 @@ class ApplicationApiTest {
                                 """))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value("SHORTLISTED"));
+    }
+
+    /**
+     * Another company's drive - here the cell's seeded one - is invisible to a recruiter:
+     * not on the board, a 404 by id, and its applicants and decisions closed with a 404.
+     */
+    @Test
+    void aRecruiterCannotSeeOrTouchSomebodyElsesDrive() throws Exception {
+        createUser("hr@zoho.com", Role.RECRUITER);
+        String recruiterToken = jwtService.generateToken("hr@zoho.com", Role.RECRUITER);
+        Application application = seedApplication(studentId, driveId, ApplicationStatus.APPLIED);
+
+        mockMvc.perform(get("/api/drives").header(HttpHeaders.AUTHORIZATION, bearer(recruiterToken)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(0));
+        mockMvc.perform(get("/api/drives/" + driveId).header(HttpHeaders.AUTHORIZATION, bearer(recruiterToken)))
+                .andExpect(status().isNotFound());
+        mockMvc.perform(delete("/api/drives/" + driveId).header(HttpHeaders.AUTHORIZATION, bearer(recruiterToken)))
+                .andExpect(status().isNotFound());
+        mockMvc.perform(get("/api/applications/drive/" + driveId)
+                        .header(HttpHeaders.AUTHORIZATION, bearer(recruiterToken)))
+                .andExpect(status().isNotFound());
+        mockMvc.perform(patch("/api/applications/" + application.getId() + "/status")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(recruiterToken))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"status":"REJECTED"}
+                                """))
+                .andExpect(status().isNotFound());
+
+        // Nothing changed: the drive is still there, and the decision was never made.
+        assertThat(driveRepository.existsById(driveId)).isTrue();
+        assertThat(applicationRepository.findById(application.getId()).orElseThrow().getStatus())
+                .isEqualTo(ApplicationStatus.APPLIED);
+    }
+
+    @Test
+    void aDrivePostedByARecruiterIsTheirsAndOnlyTheirs() throws Exception {
+        createUser("hr@zoho.com", Role.RECRUITER);
+        createUser("hr@infosys.com", Role.RECRUITER);
+        String zoho = jwtService.generateToken("hr@zoho.com", Role.RECRUITER);
+        String infosys = jwtService.generateToken("hr@infosys.com", Role.RECRUITER);
+
+        mockMvc.perform(post("/api/drives").header(HttpHeaders.AUTHORIZATION, bearer(zoho))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"companyName":"Zoho","role":"SDE","ctc":900000,"tier":1,"cgpaCutoff":7.5,
+                                 "backlogsAllowed":false,"eligibleBranches":["CSE"],
+                                 "applicationDeadline":"%s"}
+                                """.formatted(FUTURE)))
+                .andExpect(status().isCreated());
+
+        mockMvc.perform(get("/api/drives").header(HttpHeaders.AUTHORIZATION, bearer(zoho)))
+                .andExpect(jsonPath("$.length()").value(1))
+                .andExpect(jsonPath("$[0].companyName").value("Zoho"));
+        mockMvc.perform(get("/api/drives").header(HttpHeaders.AUTHORIZATION, bearer(infosys)))
+                .andExpect(jsonPath("$.length()").value(0));
+        // The cell and students still see the whole board: the seeded drive and Zoho's.
+        mockMvc.perform(get("/api/drives").header(HttpHeaders.AUTHORIZATION, bearer(picToken)))
+                .andExpect(jsonPath("$.length()").value(2));
+        mockMvc.perform(get("/api/drives").header(HttpHeaders.AUTHORIZATION, bearer(studentToken)))
+                .andExpect(jsonPath("$.length()").value(2));
+    }
+
+    @Test
+    void aRecruitersCountsCoverOnlyTheirOwnDrives() throws Exception {
+        Long recruiterId = createUser("hr@zoho.com", Role.RECRUITER).getId();
+        String recruiterToken = jwtService.generateToken("hr@zoho.com", Role.RECRUITER);
+        Long ownDrive = seedDrive("Zoho", recruiterId).getId();
+        seedApplication(studentId, ownDrive, ApplicationStatus.APPLIED);
+        seedApplication(secondStudentId, driveId, ApplicationStatus.APPLIED);   // the cell's drive
+
+        mockMvc.perform(get("/api/applications/stats").header(HttpHeaders.AUTHORIZATION, bearer(recruiterToken)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.byStatus.APPLIED").value(1))
+                .andExpect(jsonPath("$.awaitingReviewByDrive['" + ownDrive + "']").value(1))
+                .andExpect(jsonPath("$.awaitingReviewByDrive['" + driveId + "']").doesNotExist());
+    }
+
+    /** A recruiter with no drives yet gets zeros, not an error from an empty IN list. */
+    @Test
+    void aRecruiterWithNoDrivesSeesZeroCounts() throws Exception {
+        createUser("hr@zoho.com", Role.RECRUITER);
+        String recruiterToken = jwtService.generateToken("hr@zoho.com", Role.RECRUITER);
+        seedApplication(studentId, driveId, ApplicationStatus.APPLIED);
+
+        mockMvc.perform(get("/api/applications/stats").header(HttpHeaders.AUTHORIZATION, bearer(recruiterToken)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.byStatus.APPLIED").value(0));
+    }
+
+    /** Job-description search spans every company, so it is closed to recruiters. */
+    @Test
+    void aRecruiterCannotSearchJobDescriptions() throws Exception {
+        createUser("hr@zoho.com", Role.RECRUITER);
+        String recruiterToken = jwtService.generateToken("hr@zoho.com", Role.RECRUITER);
+
+        mockMvc.perform(get("/api/job-descriptions/search").param("q", "backend")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(recruiterToken)))
+                .andExpect(status().isForbidden());
     }
 
     @Test
@@ -336,7 +440,12 @@ class ApplicationApiTest {
     }
 
     private Drive seedDrive(String company) {
+        return seedDrive(company, null);
+    }
+
+    private Drive seedDrive(String company, Long createdBy) {
         Drive drive = new Drive();
+        drive.setCreatedBy(createdBy);
         drive.setCompanyName(company);
         drive.setRole("SDE");
         drive.setCtc(new BigDecimal("900000"));

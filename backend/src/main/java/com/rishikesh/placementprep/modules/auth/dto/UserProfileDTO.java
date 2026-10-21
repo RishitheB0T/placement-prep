@@ -1,6 +1,7 @@
 package com.rishikesh.placementprep.modules.auth.dto;
 
 import java.math.BigDecimal;
+import java.util.Optional;
 
 import com.rishikesh.placementprep.modules.auth.model.Role;
 
@@ -52,5 +53,14 @@ public record UserProfileDTO(
                 && branch != null && !branch.isBlank()
                 && tenthPercentage != null
                 && twelfthPercentage != null;
+    }
+
+    /**
+     * Whose drives this account may see and manage: a recruiter only their own, so their
+     * id; every other role the whole board, so empty. Services take this as their "scope"
+     * argument. Not a getter name, so it never appears in the JSON.
+     */
+    public Optional<Long> driveScope() {
+        return role == Role.RECRUITER ? Optional.of(id) : Optional.empty();
     }
 }

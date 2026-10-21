@@ -1,6 +1,7 @@
 package com.rishikesh.placementprep.modules.application.service;
 
 import java.time.Instant;
+import java.util.Collection;
 import java.util.EnumMap;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -79,21 +80,52 @@ public class ApplicationService {
                 .stream().map(this::toDto).toList();
     }
 
-    /** Counts across every drive, for the recruiter's and admin's dashboards. */
+    /** One application by id, whoever it belongs to - for the hiring side's checks. */
+    @Transactional(readOnly = true)
+    public Optional<ApplicationDTO> findById(Long id) {
+        return applicationRepository.findById(id).map(this::toDto);
+    }
+
+    /** Counts across every drive, for the coordinator's and admin's dashboards. */
     @Transactional(readOnly = true)
     public ApplicationStatsDTO stats() {
+        return stats(Optional.empty());
+    }
+
+    /**
+     * Counts for the dashboards.
+     *
+     * @param onlyDrives a recruiter's own drive ids, to count only those; empty to count
+     *                   every drive. The caller works the ids out, so this module never
+     *                   needs to know what a recruiter is.
+     */
+    @Transactional(readOnly = true)
+    public ApplicationStatsDTO stats(Optional<Collection<Long>> onlyDrives) {
         // 1. Start every status at zero, then fill in the ones that have applications
         Map<ApplicationStatus, Long> byStatus = new EnumMap<>(ApplicationStatus.class);
         for (ApplicationStatus status : ApplicationStatus.values()) {
             byStatus.put(status, 0L);
         }
-        for (Object[] row : applicationRepository.countByStatus()) {
+        Map<Long, Long> awaitingReview = new LinkedHashMap<>();
+
+        // A recruiter with no drives yet has nothing to count - and "IN ()" with an empty
+        // list is not valid SQL, so this answers without asking the database at all.
+        if (onlyDrives.isPresent() && onlyDrives.get().isEmpty()) {
+            return new ApplicationStatsDTO(byStatus, awaitingReview);
+        }
+
+        List<Object[]> statusRows = onlyDrives.isPresent()
+                ? applicationRepository.countByStatusForDrives(onlyDrives.get())
+                : applicationRepository.countByStatus();
+        for (Object[] row : statusRows) {
             byStatus.put((ApplicationStatus) row[0], (Long) row[1]);
         }
 
         // 2. Which drives have applications nobody has looked at yet
-        Map<Long, Long> awaitingReview = new LinkedHashMap<>();
-        for (Object[] row : applicationRepository.countPerDrive(ApplicationStatus.APPLIED)) {
+        List<Object[]> waitingRows = onlyDrives.isPresent()
+                ? applicationRepository.countPerDriveForDrives(ApplicationStatus.APPLIED, onlyDrives.get())
+                : applicationRepository.countPerDrive(ApplicationStatus.APPLIED);
+        for (Object[] row : waitingRows) {
             awaitingReview.put((Long) row[0], (Long) row[1]);
         }
 

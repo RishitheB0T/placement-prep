@@ -152,6 +152,16 @@ describe("Drives", () => {
       expect(screen.queryByRole("button", { name: "Apply" })).not.toBeInTheDocument();
       expect(applicationsApi.fetchMyApplications).not.toHaveBeenCalled();
       expect(drivesApi.fetchEligibleDrives).not.toHaveBeenCalled();
+      // The backend serves only their own drives, and the page says so.
+      expect(screen.getByRole("heading", { name: "Your drives" })).toBeInTheDocument();
+    });
+
+    it("is pointed at posting a first drive when they have none", async () => {
+      vi.mocked(authApi.fetchMyProfile).mockResolvedValue(recruiter());
+      vi.mocked(drivesApi.fetchAllDrives).mockResolvedValue([]);
+      renderPage(<Drives />);
+
+      expect(await screen.findByText(/You have not posted a drive yet/)).toBeInTheDocument();
     });
   });
 });

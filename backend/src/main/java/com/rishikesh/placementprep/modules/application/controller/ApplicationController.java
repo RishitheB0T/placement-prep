@@ -1,8 +1,10 @@
 package com.rishikesh.placementprep.modules.application.controller;
 
 import java.net.URI;
+import java.util.Collection;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.stream.Collectors;
 
 import org.springframework.http.HttpStatus;
@@ -25,6 +27,8 @@ import com.rishikesh.placementprep.modules.application.dto.UpdateStatusRequest;
 import com.rishikesh.placementprep.modules.application.service.ApplicationService;
 import com.rishikesh.placementprep.modules.auth.dto.UserProfileDTO;
 import com.rishikesh.placementprep.modules.auth.service.UserService;
+import com.rishikesh.placementprep.modules.drive.dto.DriveDTO;
+import com.rishikesh.placementprep.modules.drive.service.DriveService;
 
 import jakarta.validation.Valid;
 
@@ -42,10 +46,13 @@ public class ApplicationController {
 
     private final ApplicationService applicationService;
     private final UserService userService;
+    private final DriveService driveService;
 
-    public ApplicationController(ApplicationService applicationService, UserService userService) {
+    public ApplicationController(ApplicationService applicationService, UserService userService,
+                                 DriveService driveService) {
         this.applicationService = applicationService;
         this.userService = userService;
+        this.driveService = driveService;
     }
 
     @PostMapping
@@ -63,10 +70,16 @@ public class ApplicationController {
         return applicationService.findMine(callerId(principal));
     }
 
-    /** Counts across every drive, for the dashboards. Restricted to staff by SecurityConfig. */
+    /**
+     * Counts for the dashboards: across every drive, or for a recruiter only across the
+     * drives they posted. Restricted to the hiring side by SecurityConfig.
+     */
     @GetMapping("/stats")
-    public ApplicationStatsDTO stats() {
-        return applicationService.stats();
+    public ApplicationStatsDTO stats(@AuthenticationPrincipal UserDetails principal) {
+        Optional<Long> scope = caller(principal).driveScope();
+        Optional<Collection<Long>> onlyDrives = scope.map(owner ->
+                driveService.findAllDrives(scope).stream().map(DriveDTO::id).toList());
+        return applicationService.stats(onlyDrives);
     }
 
     /**
@@ -79,7 +92,12 @@ public class ApplicationController {
      * of the auth module's storage.
      */
     @GetMapping("/drive/{driveId}")
-    public List<ApplicationDTO> forDrive(@PathVariable Long driveId) {
+    public List<ApplicationDTO> forDrive(@AuthenticationPrincipal UserDetails principal,
+                                         @PathVariable Long driveId) {
+        // A recruiter may only read applicants to their own drives. Another company's
+        // drive is a 404, the same answer as a drive that does not exist.
+        requireVisibleDrive(driveId, caller(principal).driveScope());
+
         List<ApplicationDTO> applications = applicationService.findForDrive(driveId);
 
         Map<Long, String> emails = userService.emailsByIds(
@@ -90,13 +108,23 @@ public class ApplicationController {
                 .toList();
     }
 
-    /** The placement cell moving an application along. Restricted by SecurityConfig. */
+    /**
+     * The hiring side moving an application along. Restricted by SecurityConfig; a
+     * recruiter may only decide applications to their own drives, and any other is a 404.
+     */
     @PatchMapping("/{id}/status")
-    public ApplicationDTO updateStatus(@PathVariable Long id,
+    public ApplicationDTO updateStatus(@AuthenticationPrincipal UserDetails principal,
+                                       @PathVariable Long id,
                                        @Valid @RequestBody UpdateStatusRequest request) {
-        return applicationService.updateStatus(id, request)
-                .orElseThrow(() -> new ResponseStatusException(
-                        HttpStatus.NOT_FOUND, "No application with id " + id));
+        Optional<Long> scope = caller(principal).driveScope();
+        ResponseStatusException notFound =
+                new ResponseStatusException(HttpStatus.NOT_FOUND, "No application with id " + id);
+
+        ApplicationDTO existing = applicationService.findById(id)
+                .filter(application -> driveService.findDriveById(application.driveId(), scope).isPresent())
+                .orElseThrow(() -> notFound);
+
+        return applicationService.updateStatus(existing.id(), request).orElseThrow(() -> notFound);
     }
 
     /**
@@ -116,9 +144,22 @@ public class ApplicationController {
 
     /** Resolves the signed-in account's numeric id from the email a verified token carries. */
     private Long callerId(UserDetails principal) {
-        UserProfileDTO profile = userService.findByEmail(principal.getUsername())
+        return caller(principal).id();
+    }
+
+    /**
+     * The signed-in account. A missing account is a 404 rather than "no scope", so a
+     * lookup failure can never widen a recruiter's view to every drive.
+     */
+    private UserProfileDTO caller(UserDetails principal) {
+        return userService.findByEmail(principal.getUsername())
                 .orElseThrow(() -> new ResponseStatusException(
                         HttpStatus.NOT_FOUND, "Account no longer exists"));
-        return profile.id();
+    }
+
+    private void requireVisibleDrive(Long driveId, Optional<Long> scope) {
+        if (driveService.findDriveById(driveId, scope).isEmpty()) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "No drive with id " + driveId);
+        }
     }
 }

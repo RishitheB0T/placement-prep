@@ -4,10 +4,13 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Optional;
 
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -16,6 +19,7 @@ import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.multipart.MultipartFile;
 import org.springframework.web.server.ResponseStatusException;
 
+import com.rishikesh.placementprep.modules.auth.service.UserService;
 import com.rishikesh.placementprep.modules.drive.dto.DriveDTO;
 import com.rishikesh.placementprep.modules.drive.service.DriveService;
 import com.rishikesh.placementprep.modules.knowledgebase.dto.IndexedJobDescription;
@@ -30,9 +34,10 @@ import jakarta.validation.constraints.Size;
 /**
  * Uploading a drive's job-description PDF, and searching every uploaded one by meaning.
  *
- * <p>Uploading sits under /api/drives, so SecurityConfig's existing "changing the board
- * is the cell's job" rule already restricts it to recruiters and admins. Searching is
- * open to any signed-in account.
+ * <p>Uploading sits under /api/drives, so SecurityConfig's existing "changing the board"
+ * rule already restricts it to the hiring side, and a recruiter only to their own drives.
+ * Searching is for students and the cell - a recruiter would otherwise read other
+ * companies' job descriptions through it.
  */
 @RestController
 public class JobDescriptionController {
@@ -42,15 +47,19 @@ public class JobDescriptionController {
 
     private final JobDescriptionService jobDescriptionService;
     private final DriveService driveService;
+    private final UserService userService;
 
-    public JobDescriptionController(JobDescriptionService jobDescriptionService, DriveService driveService) {
+    public JobDescriptionController(JobDescriptionService jobDescriptionService, DriveService driveService,
+                                    UserService userService) {
         this.jobDescriptionService = jobDescriptionService;
         this.driveService = driveService;
+        this.userService = userService;
     }
 
     /** Makes a drive's job-description PDF searchable, replacing any earlier one. */
     @PostMapping(path = "/api/drives/{driveId}/job-description", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
-    public ResponseEntity<IndexedJobDescription> upload(@PathVariable Long driveId,
+    public ResponseEntity<IndexedJobDescription> upload(@AuthenticationPrincipal UserDetails principal,
+                                                        @PathVariable Long driveId,
                                                         @RequestParam MultipartFile file) throws IOException {
         // 1. Same checks as a resume upload: something there, and really a PDF
         byte[] content = file.getBytes();
@@ -59,8 +68,12 @@ public class JobDescriptionController {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Only PDF job descriptions are accepted");
         }
 
-        // 2. The drive has to exist - its company and role label every passage
-        DriveDTO drive = driveService.findDriveById(driveId)
+        // 2. The drive has to exist - its company and role label every passage - and a
+        //    recruiter may only describe their own drive
+        Optional<Long> scope = userService.findByEmail(principal.getUsername())
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Account no longer exists"))
+                .driveScope();
+        DriveDTO drive = driveService.findDriveById(driveId, scope)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "No drive with id " + driveId));
 
         // 3. Read, split, embed and store

@@ -40,17 +40,18 @@ public class DriveController {
         this.jobDescriptionService = jobDescriptionService;
     }
 
-    /** Admin posts a new placement drive. */
+    /** A coordinator, recruiter or the admin posts a new drive, recorded as theirs. */
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)
-    public DriveDTO createDrive(@Valid @RequestBody DriveRequest request) {
-        return driveService.createDrive(request);
+    public DriveDTO createDrive(@AuthenticationPrincipal UserDetails principal,
+                                @Valid @RequestBody DriveRequest request) {
+        return driveService.createDrive(request, caller(principal).id());
     }
 
-    /** Every drive on the board. */
+    /** Every drive on the board - or, for a recruiter, every drive they posted. */
     @GetMapping
-    public List<DriveDTO> findAllDrives() {
-        return driveService.findAllDrives();
+    public List<DriveDTO> findAllDrives(@AuthenticationPrincipal UserDetails principal) {
+        return driveService.findAllDrives(caller(principal).driveScope());
     }
 
     /**
@@ -66,9 +67,7 @@ public class DriveController {
      */
     @GetMapping("/eligible")
     public List<DriveDTO> findEligibleDrives(@AuthenticationPrincipal UserDetails principal) {
-        UserProfileDTO profile = userService.findByEmail(principal.getUsername())
-                .orElseThrow(() -> new ResponseStatusException(
-                        HttpStatus.NOT_FOUND, "Account no longer exists"));
+        UserProfileDTO profile = caller(principal);
 
         if (!profile.isComplete()) {
             // 409 rather than 400: the request itself is perfectly well formed, it just
@@ -87,32 +86,46 @@ public class DriveController {
                 profile.branch());
     }
 
-    /** One drive by id. */
+    /**
+     * One drive by id. Another recruiter's drive is a 404 rather than a 403, so a
+     * recruiter cannot even learn which ids other companies' drives have.
+     */
     @GetMapping("/{id}")
-    public DriveDTO findDriveById(@PathVariable Long id) {
-        return driveService.findDriveById(id)
+    public DriveDTO findDriveById(@AuthenticationPrincipal UserDetails principal, @PathVariable Long id) {
+        return driveService.findDriveById(id, caller(principal).driveScope())
                 .orElseThrow(() -> notFound(id));
     }
 
     /** Replaces every editable field of an existing drive. */
     @PutMapping("/{id}")
-    public DriveDTO updateDrive(@PathVariable Long id,
+    public DriveDTO updateDrive(@AuthenticationPrincipal UserDetails principal,
+                                @PathVariable Long id,
                                 @Valid @RequestBody DriveRequest request) {
-        return driveService.updateDrive(id, request)
+        return driveService.updateDrive(id, request, caller(principal).driveScope())
                 .orElseThrow(() -> notFound(id));
     }
 
     /** Removes a drive. Returns 204 with an empty body when it worked. */
     @DeleteMapping("/{id}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
-    public void deleteDrive(@PathVariable Long id) {
-        if (!driveService.deleteDrive(id)) {
+    public void deleteDrive(@AuthenticationPrincipal UserDetails principal, @PathVariable Long id) {
+        if (!driveService.deleteDrive(id, caller(principal).driveScope())) {
             throw notFound(id);
         }
         // Its job-description passages live in the vector store, which has no foreign key
         // back to drives, so they are removed here - otherwise searches would keep
         // returning a drive that no longer exists.
         jobDescriptionService.forgetDrive(id);
+    }
+
+    /**
+     * The signed-in account. A missing account is a 404 rather than "no scope", so a
+     * lookup failure can never widen a recruiter's view to the whole board.
+     */
+    private UserProfileDTO caller(UserDetails principal) {
+        return userService.findByEmail(principal.getUsername())
+                .orElseThrow(() -> new ResponseStatusException(
+                        HttpStatus.NOT_FOUND, "Account no longer exists"));
     }
 
     /**

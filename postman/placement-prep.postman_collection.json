@@ -1230,7 +1230,7 @@
     },
     {
       "name": "8. Recruiters",
-      "description": "A recruiter is a company hiring contact, added by the admin with a company email. They post drives and review applicants like the cell, but are not a student: applying, resume feedback and the assistant all answer 403.",
+      "description": "A recruiter is a company hiring contact, added by the admin with a company email. They post drives and review applicants, but only for drives they posted themselves: anyone else's drive is a 404, exactly like a drive that does not exist. They are not a student, so applying, resume feedback, the assistant and job-description search all answer 403.",
       "item": [
         {
           "name": "Add a recruiter as a student -> 403",
@@ -1371,7 +1371,90 @@
           ]
         },
         {
-          "name": "Applicants for a drive as the recruiter",
+          "name": "Post a drive as the recruiter",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{recruiterToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/drives",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"companyName\": \"Postman Recruiting Co\",\n  \"role\": \"Data Engineer\",\n  \"ctc\": 1500000,\n  \"tier\": 1,\n  \"cgpaCutoff\": 7,\n  \"tenthCutoff\": null,\n  \"twelfthCutoff\": null,\n  \"backlogsAllowed\": false,\n  \"maxBacklogs\": null,\n  \"eligibleBranches\": [\n    \"CSE\"\n  ],\n  \"applicationDeadline\": \"2099-06-30T18:00:00Z\",\n  \"description\": \"Posted by a company recruiter.\"\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"201 Created\", () => pm.response.to.have.status(201));",
+                  "pm.collectionVariables.set(\"recruiterDriveId\", pm.response.json().id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "All drives as the recruiter - only their own",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{recruiterToken}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/drives"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"200 OK\", () => pm.response.to.have.status(200));",
+                  "const ids = pm.response.json().map((d) => d.id);",
+                  "pm.test(\"only the drive they posted\", () => pm.expect(ids).to.eql([Number(pm.collectionVariables.get(\"recruiterDriveId\"))]));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Another company's drive as the recruiter -> 404",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{recruiterToken}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/drives/{{driveId}}"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"404 Not Found\", () => pm.response.to.have.status(404));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Applicants for another company's drive as the recruiter -> 404",
           "request": {
             "method": "GET",
             "header": [
@@ -1388,6 +1471,62 @@
               "script": {
                 "type": "text/javascript",
                 "exec": [
+                  "pm.test(\"404 Not Found\", () => pm.response.to.have.status(404));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Decide an application to another company's drive as the recruiter -> 404",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{recruiterToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/applications/{{applicationId}}/status",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"status\": \"REJECTED\"\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"404 Not Found\", () => pm.response.to.have.status(404));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Applicants for their own drive as the recruiter",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{recruiterToken}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/applications/drive/{{recruiterDriveId}}"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
                   "pm.test(\"200 OK\", () => pm.response.to.have.status(200));"
                 ]
               }
@@ -1395,7 +1534,7 @@
           ]
         },
         {
-          "name": "Application counts as the recruiter",
+          "name": "Application counts as the recruiter - own drives only",
           "request": {
             "method": "GET",
             "header": [
@@ -1412,7 +1551,57 @@
               "script": {
                 "type": "text/javascript",
                 "exec": [
+                  "pm.test(\"200 OK\", () => pm.response.to.have.status(200));",
+                  "const body = pm.response.json();",
+                  "pm.test(\"nothing from other drives\", () => pm.expect(body.awaitingReviewByDrive).to.not.have.property(String(pm.collectionVariables.get(\"driveId\"))));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "The admin still sees the recruiter's drive",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/drives/{{recruiterDriveId}}"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
                   "pm.test(\"200 OK\", () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Search job descriptions as the recruiter -> 403",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{recruiterToken}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/job-descriptions/search?q=backend"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"403 Forbidden\", () => pm.response.to.have.status(403));"
                 ]
               }
             }
@@ -1525,6 +1714,30 @@
                 "type": "text/javascript",
                 "exec": [
                   "pm.test(\"403 Forbidden\", () => pm.response.to.have.status(403));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Delete their own drive as the recruiter",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{recruiterToken}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/drives/{{recruiterDriveId}}"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"204 No Content\", () => pm.response.to.have.status(204));"
                 ]
               }
             }
@@ -1788,6 +2001,10 @@
     },
     {
       "key": "recruiterToken",
+      "value": ""
+    },
+    {
+      "key": "recruiterDriveId",
       "value": ""
     }
   ]

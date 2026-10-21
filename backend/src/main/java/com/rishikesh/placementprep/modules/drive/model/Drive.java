@@ -48,6 +48,13 @@ public class Drive {
 
     private String description;
 
+    /**
+     * The account that posted this drive, as a plain id - the same style Application uses
+     * for studentId, so the drive module does not depend on the auth module's entity.
+     * Null for drives posted before V14.
+     */
+    private Long createdBy;
+
     @CreationTimestamp
     private Instant createdAt;
 
@@ -59,6 +66,14 @@ public class Drive {
 
     public Long getId() {
         return id;
+    }
+
+    public Long getCreatedBy() {
+        return createdBy;
+    }
+
+    public void setCreatedBy(Long createdBy) {
+        this.createdBy = createdBy;
     }
 
     public void setId(Long id) {

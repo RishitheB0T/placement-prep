@@ -1,5 +1,6 @@
 package com.rishikesh.placementprep.modules.application.repository;
 
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 
@@ -33,4 +34,14 @@ public interface ApplicationRepository extends JpaRepository<Application, Long> 
     /** How many applications in one status each drive has. Each row is {driveId, count}. */
     @Query("SELECT a.driveId, COUNT(a) FROM Application a WHERE a.status = :status GROUP BY a.driveId")
     List<Object[]> countPerDrive(@Param("status") ApplicationStatus status);
+
+    /** countByStatus, limited to some drives - a recruiter's own. */
+    @Query("SELECT a.status, COUNT(a) FROM Application a WHERE a.driveId IN :driveIds GROUP BY a.status")
+    List<Object[]> countByStatusForDrives(@Param("driveIds") Collection<Long> driveIds);
+
+    /** countPerDrive, limited to some drives - a recruiter's own. */
+    @Query("SELECT a.driveId, COUNT(a) FROM Application a "
+            + "WHERE a.status = :status AND a.driveId IN :driveIds GROUP BY a.driveId")
+    List<Object[]> countPerDriveForDrives(@Param("status") ApplicationStatus status,
+                                          @Param("driveIds") Collection<Long> driveIds);
 }

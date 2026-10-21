@@ -11,6 +11,9 @@ import com.rishikesh.placementprep.modules.drive.model.Drive;
 
 public interface DriveRepository extends JpaRepository<Drive, Long> {
 
+    /** One account's own drives, newest first - a recruiter's whole view of the board. */
+    List<Drive> findByCreatedByOrderByCreatedAtDesc(Long createdBy);
+
     /**
      * Drives a given student is eligible to apply for, soonest deadline first.
      *

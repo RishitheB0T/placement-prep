@@ -135,6 +135,11 @@ public class SecurityConfig {
                     // applications, apply - so it follows the same rule as resumes.
                     .requestMatchers("/api/agent/**").hasAnyRole(STUDENTS)
 
+                    // Searching job descriptions spans every company's drives. A
+                    // recruiter sees only their own drives, so this is closed to them.
+                    .requestMatchers(HttpMethod.GET, "/api/job-descriptions/search")
+                            .hasAnyRole("STUDENT", "TNP_COORDINATOR", "TNP_PIC")
+
                     // Default deny. Anything added later is locked until a rule is written
                     // for it, which fails safe rather than silently exposing a new endpoint.
                     .anyRequest().authenticated())

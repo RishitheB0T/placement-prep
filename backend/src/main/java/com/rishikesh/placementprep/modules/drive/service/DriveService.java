@@ -24,11 +24,16 @@ public class DriveService {
 
     // ----------------------------------------------------------------- Create
 
+    /**
+     * @param createdBy the posting account's id. Set here and never by applyRequest, so
+     *                  an update can never hand a drive to somebody else.
+     */
     @Transactional
-    public DriveDTO createDrive(DriveRequest request) {
+    public DriveDTO createDrive(DriveRequest request, Long createdBy) {
         // 1. Map the incoming DTO onto a new Database Entity
         Drive drive = new Drive();
         applyRequest(drive, request);
+        drive.setCreatedBy(createdBy);
 
         // 2. Save the entity to PostgreSQL
         Drive savedDrive = driveRepository.save(drive);
@@ -39,12 +44,24 @@ public class DriveService {
 
     // ------------------------------------------------------------------- Read
 
+    /** The whole board. For callers acting as a student, who see every drive. */
     @Transactional(readOnly = true)
     public List<DriveDTO> findAllDrives() {
-        return driveRepository.findAll(Sort.by(Sort.Direction.DESC, "createdAt"))
-                .stream()
-                .map(this::toDto)
-                .toList();
+        return findAllDrives(Optional.empty());
+    }
+
+    /**
+     * The board as one account may see it.
+     *
+     * @param scope a recruiter's own id, to see only the drives they posted; empty for
+     *              every other role, to see them all (see UserProfileDTO.driveScope)
+     */
+    @Transactional(readOnly = true)
+    public List<DriveDTO> findAllDrives(Optional<Long> scope) {
+        List<Drive> drives = scope.isPresent()
+                ? driveRepository.findByCreatedByOrderByCreatedAtDesc(scope.get())
+                : driveRepository.findAll(Sort.by(Sort.Direction.DESC, "createdAt"));
+        return drives.stream().map(this::toDto).toList();
     }
 
     /**
@@ -54,7 +71,16 @@ public class DriveService {
      */
     @Transactional(readOnly = true)
     public Optional<DriveDTO> findDriveById(Long id) {
-        return driveRepository.findById(id).map(this::toDto);
+        return findDriveById(id, Optional.empty());
+    }
+
+    /**
+     * One drive, if this scope may see it. Another recruiter's drive comes back empty,
+     * exactly like a drive that does not exist, so the caller cannot tell the two apart.
+     */
+    @Transactional(readOnly = true)
+    public Optional<DriveDTO> findDriveById(Long id, Optional<Long> scope) {
+        return findVisible(id, scope).map(this::toDto);
     }
 
     /**
@@ -75,11 +101,11 @@ public class DriveService {
 
     /**
      * Replaces every editable field of an existing drive. Empty Optional means there was
-     * no drive with that id, so nothing was changed.
+     * no drive with that id that this scope may touch, so nothing was changed.
      */
     @Transactional
-    public Optional<DriveDTO> updateDrive(Long id, DriveRequest request) {
-        return driveRepository.findById(id)
+    public Optional<DriveDTO> updateDrive(Long id, DriveRequest request, Optional<Long> scope) {
+        return findVisible(id, scope)
                 .map(drive -> {
                     applyRequest(drive, request);
                     return toDto(driveRepository.save(drive));
@@ -89,20 +115,28 @@ public class DriveService {
     // ----------------------------------------------------------------- Delete
 
     /**
-     * Returns false when there was no drive with that id. Spring Data's deleteById is
-     * silent about a missing row, so we check first rather than report success for a
-     * delete that did nothing.
+     * Returns false when there was no drive with that id that this scope may touch.
+     * Spring Data's delete is silent about a missing row, so we look first rather than
+     * report success for a delete that did nothing.
      */
     @Transactional
-    public boolean deleteDrive(Long id) {
-        if (!driveRepository.existsById(id)) {
-            return false;
-        }
-        driveRepository.deleteById(id);
-        return true;
+    public boolean deleteDrive(Long id, Optional<Long> scope) {
+        Optional<Drive> drive = findVisible(id, scope);
+        drive.ifPresent(driveRepository::delete);
+        return drive.isPresent();
     }
 
     // -------------------------------------------------------- Mapping helpers
+
+    /**
+     * The one place the recruiter rule lives: with a scope, a drive is visible only when
+     * that account posted it. Every scoped read and write goes through here, so the rule
+     * cannot be applied to one endpoint and forgotten on another.
+     */
+    private Optional<Drive> findVisible(Long id, Optional<Long> scope) {
+        return driveRepository.findById(id)
+                .filter(drive -> scope.isEmpty() || scope.get().equals(drive.getCreatedBy()));
+    }
 
     /**
      * Copies the editable fields of a request onto an entity. Shared by create and
