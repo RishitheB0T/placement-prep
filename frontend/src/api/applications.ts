@@ -1,5 +1,10 @@
 import { api } from "./client";
-import type { Application, ApplicationStatus } from "./types";
+import type { Application, ApplicationStats, ApplicationStatus } from "./types";
+
+/** Counts across every drive, for the recruiter's and admin's dashboards. Staff only. */
+export function fetchApplicationStats(): Promise<ApplicationStats> {
+  return api.get<ApplicationStats>("/api/applications/stats");
+}
 
 /**
  * Applies the signed-in student to a drive. Only the drive is named - the backend takes

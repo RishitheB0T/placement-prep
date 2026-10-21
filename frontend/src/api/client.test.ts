@@ -22,7 +22,10 @@ describe("api client", () => {
   const jsonResponse = (body: unknown, status = 200) =>
     new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
 
-  const headersOf = (call: number) => new Headers(fetchMock.mock.calls[call][1].headers);
+  // Axios's fetch adapter builds a Request object and hands that to fetch, so what each
+  // call sent - method, headers, body - is read off the Request.
+  const requestOf = (call: number) => fetchMock.mock.calls[call][0] as Request;
+  const headersOf = (call: number) => requestOf(call).headers;
 
   it("sends no Authorization header when there is no token", async () => {
     fetchMock.mockResolvedValue(jsonResponse({ ok: true }));
@@ -53,12 +56,39 @@ describe("api client", () => {
     expect(headersOf(1).get("Content-Type")).toBe("application/json");
   });
 
+  it("never labels a file upload as JSON", async () => {
+    // The browser writes multipart/form-data plus the boundary between the parts. A JSON
+    // header in its place would leave the server unable to find the file. (Under jsdom
+    // the exact multipart header cannot be checked - its FormData is not the one Node's
+    // Request understands - so the test pins down the part this code controls.)
+    fetchMock.mockResolvedValue(jsonResponse({ ok: true }));
+    const form = new FormData();
+    form.append("driveId", "1");
+
+    await api.postForm("/api/resumes", form);
+
+    expect(requestOf(0).method).toBe("POST");
+    expect(headersOf(0).get("Content-Type")).not.toBe("application/json");
+  });
+
+  it("returns a binary body as a Blob, with the token still attached", async () => {
+    setToken("a.b.c");
+    // A string body, not new Blob([...]): under jsdom, Blob is jsdom's own class while
+    // Response is Node's, and Node's Response turns a foreign Blob into "[object Blob]".
+    fetchMock.mockResolvedValue(new Response("%PDF-1.4", { status: 200 }));
+
+    const blob = await api.getBlob("/api/resumes/1/file");
+
+    expect(await blob.text()).toBe("%PDF-1.4");
+    expect(headersOf(0).get("Authorization")).toBe("Bearer a.b.c");
+  });
+
   it("sends no body for a bodiless POST, which withdraw relies on", async () => {
     fetchMock.mockResolvedValue(jsonResponse({ ok: true }));
 
     await api.post("/api/applications/1/withdraw");
 
-    expect(fetchMock.mock.calls[0][1].body).toBeUndefined();
+    expect(requestOf(0).body).toBeNull();
   });
 
   it("unwraps an RFC 9457 problem body into the thrown error's message", async () => {

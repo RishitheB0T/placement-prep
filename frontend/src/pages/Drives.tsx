@@ -2,12 +2,25 @@ import { useCallback, useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 
 import { applyToDrive, fetchMyApplications } from "../api/applications";
-import { fetchMyProfile, logout } from "../api/auth";
+import { fetchMyProfile } from "../api/auth";
 import { ApiError } from "../api/client";
 import { deleteDrive, fetchAllDrives, fetchEligibleDrives } from "../api/drives";
-import type { Application, Drive, UserProfile } from "../api/types";
+import type { Application, ApplicationStatus, Drive, UserProfile } from "../api/types";
+import AppHeader from "../components/AppHeader";
+import { CompanyAvatar, EmptyState, Icon, PageHero, SkeletonCards, StatTile } from "../components/ui";
 
 type Tab = "eligible" | "all";
+
+const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
+
+/** Indian formatting, because CTC figures here are read in lakhs. */
+function formatInr(amount: number): string {
+  return new Intl.NumberFormat("en-IN", {
+    style: "currency",
+    currency: "INR",
+    maximumFractionDigits: 0,
+  }).format(amount);
+}
 
 export default function Drives() {
   const navigate = useNavigate();
@@ -20,6 +33,12 @@ export default function Drives() {
   const [error, setError] = useState<string | null>(null);
   /** Set when the backend answers 409: the profile is not filled in yet. */
   const [needsProfile, setNeedsProfile] = useState(false);
+  /**
+   * "Now", captured when the list loads rather than read afresh on every render, so
+   * the closed checks and countdowns all agree with each other and a re-render cannot
+   * change what they say.
+   */
+  const [now, setNow] = useState(() => Date.now());
 
   // Two independent questions, not one. A coordinator IS a student - one who has been
   // given the run of the board - so they answer yes to both: they apply to drives like
@@ -65,6 +84,7 @@ export default function Drives() {
         ]);
         setDrives(list);
         setApplications(mine);
+        setNow(Date.now());
       } catch (e) {
         if (e instanceof ApiError && e.status === 401) {
           // The token is gone or expired. client.ts has already cleared it.
@@ -88,11 +108,6 @@ export default function Drives() {
   useEffect(() => {
     void load(tab);
   }, [tab, load]);
-
-  function handleLogout() {
-    logout();
-    navigate("/login", { replace: true });
-  }
 
   async function handleDelete(drive: Drive) {
     if (!window.confirm(`Delete the ${drive.companyName} drive? This cannot be undone.`)) {
@@ -122,115 +137,124 @@ export default function Drives() {
 
   const applicationFor = (driveId: number) => applications.find((a) => a.driveId === driveId);
 
+  // The summary row above the list, worked out from what is already loaded.
+  const openDrives = drives.filter((d) => new Date(d.applicationDeadline).getTime() >= now);
+  const closingSoon = openDrives.filter((d) => new Date(d.applicationDeadline).getTime() - now <= WEEK_MS);
+  const activeApplications = applications.filter((a) => a.status !== "WITHDRAWN");
+  const topCtc = drives.length === 0 ? 0 : Math.max(...drives.map((d) => d.ctc));
+
+  const subtitle = isStudent
+    ? tab === "eligible"
+      ? "Drives your profile qualifies for, soonest deadline first. Apply in one click."
+      : "Every drive on the board, newest first."
+    : "Everything on the board. Post new drives, keep details current, and remove old ones.";
+
   return (
-    <main className="mx-auto max-w-3xl p-6">
-      <header className="flex items-start justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-semibold text-slate-900">Placement drives</h1>
-          {profile && (
-            <p className="mt-1 text-sm text-slate-500">
-              {profile.email}
-              {profile.branch && ` · ${profile.branch}`}
-              {profile.cgpa !== null && ` · CGPA ${profile.cgpa}`}
+    <>
+      <AppHeader profile={profile} active="drives" />
+
+      <main className="mx-auto max-w-6xl px-4 pt-8 pb-16">
+        <PageHero
+          eyebrow={profile ? (isStudent ? "Placement season" : "Training and placement cell") : undefined}
+          title="Placement drives"
+          subtitle={subtitle}
+        >
+          {profile && isStudent && (profile.branch || profile.cgpa !== null) && (
+            <div className="flex flex-wrap gap-2">
+              {profile.branch && <span className="chip bg-sky-100 text-sky-700">{profile.branch}</span>}
+              {profile.cgpa !== null && <span className="chip bg-emerald-100 text-emerald-700">CGPA {profile.cgpa}</span>}
+            </div>
+          )}
+        </PageHero>
+
+        {!loading && !needsProfile && !error && profile && (
+          <div className="animate-fade-up mt-8 grid gap-4 [animation-delay:80ms] sm:grid-cols-3">
+            <StatTile icon="briefcase" label="Open drives" value={openDrives.length} tone="from-indigo-500 to-violet-500" />
+            {isStudent ? (
+              <StatTile icon="list" label="Your applications" value={activeApplications.length} tone="from-fuchsia-500 to-pink-500" />
+            ) : (
+              <StatTile icon="trend" label="Top CTC" value={topCtc === 0 ? "-" : formatInr(topCtc)} tone="from-emerald-500 to-teal-500" />
+            )}
+            <StatTile icon="clock" label="Closing this week" value={closingSoon.length} tone="from-amber-500 to-orange-500" />
+          </div>
+        )}
+
+        {/*
+          Shown to anyone who is a student, coordinators included. Hidden only from the PIC,
+          for whom load() always serves the full board - leaving the tabs up would be
+          misleading, since clicking "Eligible for me" would appear to do something while
+          quietly serving the same list underneath.
+        */}
+        {isStudent && (
+          <div className="mt-8 inline-flex rounded-2xl bg-white/70 p-1 shadow-sm ring-1 ring-slate-200/70">
+            <TabButton active={tab === "eligible"} onClick={() => setTab("eligible")}>
+              Eligible for me
+            </TabButton>
+            <TabButton active={tab === "all"} onClick={() => setTab("all")}>
+              All drives
+            </TabButton>
+          </div>
+        )}
+
+        <div className="mt-6">
+          {loading && <SkeletonCards count={4} />}
+
+          {needsProfile && !loading && (
+            <div className="animate-fade-up overflow-hidden rounded-2xl bg-linear-to-r from-amber-400 via-orange-400 to-rose-400 p-px shadow-lg shadow-orange-500/20">
+              <div className="flex flex-col gap-4 rounded-[15px] bg-white/95 p-6 sm:flex-row sm:items-center">
+                <span className="grid size-12 shrink-0 place-items-center rounded-2xl bg-linear-to-br from-amber-400 to-orange-500 text-white">
+                  <Icon name="user" className="size-6" />
+                </span>
+                <div className="flex-1">
+                  <p className="font-semibold text-slate-900">One step left</p>
+                  <p className="text-sm text-slate-600">
+                    Add your CGPA, branch and school percentages to see which drives you qualify
+                    for.
+                  </p>
+                </div>
+                <button onClick={() => navigate("/profile")} className="btn btn-warning">
+                  Complete profile
+                </button>
+              </div>
+            </div>
+          )}
+
+          {error && !loading && (
+            <p role="alert" className="alert-error animate-pop">
+              {error}
             </p>
           )}
-        </div>
-        <div className="flex gap-2">
-          {canManage && (
-            <button
-              onClick={() => navigate("/post-drive")}
-              className="rounded-lg bg-slate-900 px-3 py-1.5 text-sm font-medium text-white hover:bg-slate-700"
-            >
-              Post a drive
-            </button>
+
+          {!loading && !error && !needsProfile && drives.length === 0 && (
+            <EmptyState icon="inbox" title="Nothing here yet">
+              {isStudent && tab === "eligible"
+                ? "No open drives match your profile right now."
+                : "No drives have been posted yet."}
+            </EmptyState>
           )}
-          <button
-            onClick={() => navigate("/applications")}
-            className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-100"
-          >
-            {isStudent ? "My applications" : "Applicants"}
-          </button>
-          <button
-            onClick={() => navigate("/profile")}
-            className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-100"
-          >
-            Profile
-          </button>
-          <button
-            onClick={handleLogout}
-            className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-100"
-          >
-            Sign out
-          </button>
+
+          {!loading && (
+            <ul className="grid gap-5 md:grid-cols-2">
+              {drives.map((drive, index) => (
+                <DriveCard
+                  key={drive.id}
+                  drive={drive}
+                  index={index}
+                  now={now}
+                  canManage={canManage}
+                  isStudent={isStudent}
+                  application={applicationFor(drive.id)}
+                  onDelete={() => void handleDelete(drive)}
+                  onApply={() => void handleApply(drive)}
+                  onEdit={() => navigate(`/drives/${drive.id}/edit`)}
+                  onResumeFeedback={() => navigate(`/resumes?driveId=${drive.id}`)}
+                />
+              ))}
+            </ul>
+          )}
         </div>
-      </header>
-
-      {/*
-        Shown to anyone who is a student, coordinators included. Hidden only from the PIC,
-        for whom load() always serves the full board - leaving the tabs up would be
-        misleading, since clicking "Eligible for me" would appear to do something while
-        quietly serving the same list underneath.
-      */}
-      {isStudent && (
-        <div className="mt-6 flex gap-2 border-b border-slate-200">
-          <TabButton active={tab === "eligible"} onClick={() => setTab("eligible")}>
-            Eligible for me
-          </TabButton>
-          <TabButton active={tab === "all"} onClick={() => setTab("all")}>
-            All drives
-          </TabButton>
-        </div>
-      )}
-
-      {loading && <p className="mt-6 text-slate-500">Loading...</p>}
-
-      {needsProfile && !loading && (
-        <div className="mt-6 rounded-lg border border-amber-200 bg-amber-50 p-4">
-          <p className="text-sm text-amber-800">
-            Add your CGPA, branch and school percentages to see which drives you qualify
-            for.
-          </p>
-          <button
-            onClick={() => navigate("/profile")}
-            className="mt-3 rounded-lg bg-amber-800 px-3 py-1.5 text-sm font-medium text-white hover:bg-amber-700"
-          >
-            Complete profile
-          </button>
-        </div>
-      )}
-
-      {error && !loading && (
-        <p
-          role="alert"
-          className="mt-6 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700"
-        >
-          {error}
-        </p>
-      )}
-
-      {!loading && !error && !needsProfile && drives.length === 0 && (
-        <p className="mt-6 text-slate-500">
-          {isStudent && tab === "eligible"
-            ? "No open drives match your profile right now."
-            : "No drives have been posted yet."}
-        </p>
-      )}
-
-      <ul className="mt-6 space-y-3">
-        {drives.map((drive) => (
-          <DriveCard
-            key={drive.id}
-            drive={drive}
-            canManage={canManage}
-            isStudent={isStudent}
-            application={applicationFor(drive.id)}
-            onDelete={() => void handleDelete(drive)}
-            onApply={() => void handleApply(drive)}
-            onEdit={() => navigate(`/drives/${drive.id}/edit`)}
-          />
-        ))}
-      </ul>
-    </main>
+      </main>
+    </>
   );
 }
 
@@ -243,10 +267,10 @@ function TabButton(props: {
     <button
       onClick={props.onClick}
       className={[
-        "-mb-px border-b-2 px-3 py-2 text-sm font-medium",
+        "rounded-xl px-4 py-2 text-sm font-semibold transition",
         props.active
-          ? "border-slate-900 text-slate-900"
-          : "border-transparent text-slate-500 hover:text-slate-700",
+          ? "bg-linear-to-r from-indigo-600 to-fuchsia-500 text-white shadow-md shadow-indigo-500/25"
+          : "text-slate-600 hover:bg-white hover:text-indigo-700",
       ].join(" ")}
     >
       {props.children}
@@ -254,29 +278,44 @@ function TabButton(props: {
   );
 }
 
+const TIER_TONE: Record<number, string> = {
+  1: "bg-linear-to-r from-amber-400 to-yellow-300 text-amber-950",
+  2: "bg-linear-to-r from-sky-400 to-cyan-300 text-sky-950",
+  3: "bg-linear-to-r from-violet-400 to-fuchsia-300 text-violet-950",
+};
+
+const APPLICATION_TONE: Record<ApplicationStatus, string> = {
+  APPLIED: "bg-sky-100 text-sky-700",
+  SHORTLISTED: "bg-amber-100 text-amber-800",
+  SELECTED: "bg-emerald-100 text-emerald-700",
+  REJECTED: "bg-rose-100 text-rose-700",
+  WITHDRAWN: "bg-slate-100 text-slate-500",
+};
+
 function DriveCard({
   drive,
+  index,
+  now,
   canManage,
   isStudent,
   application,
   onDelete,
   onApply,
   onEdit,
+  onResumeFeedback,
 }: {
   drive: Drive;
+  index: number;
+  now: number;
   canManage: boolean;
   isStudent: boolean;
   application?: Application;
   onDelete: () => void;
   onApply: () => void;
   onEdit: () => void;
+  onResumeFeedback: () => void;
 }) {
-  // Indian formatting, because CTC figures here are read in lakhs.
-  const ctc = new Intl.NumberFormat("en-IN", {
-    style: "currency",
-    currency: "INR",
-    maximumFractionDigits: 0,
-  }).format(drive.ctc);
+  const [expanded, setExpanded] = useState(false);
 
   const deadline = new Date(drive.applicationDeadline).toLocaleDateString("en-IN", {
     day: "numeric",
@@ -284,23 +323,54 @@ function DriveCard({
     year: "numeric",
   });
 
-  const closed = new Date(drive.applicationDeadline).getTime() < Date.now();
+  const msLeft = new Date(drive.applicationDeadline).getTime() - now;
+  const closed = msLeft < 0;
+  const daysLeft = Math.ceil(msLeft / (24 * 60 * 60 * 1000));
+  const longDescription = (drive.description?.length ?? 0) > 180;
 
   return (
-    <li className="rounded-xl border border-slate-200 bg-white p-4">
-      <div className="flex items-baseline justify-between gap-4">
-        <h2 className="font-semibold text-slate-900">{drive.companyName}</h2>
-        <span className="shrink-0 text-sm font-medium text-slate-900">{ctc}</span>
+    <li
+      className="card card-hover animate-fade-up flex flex-col p-5 sm:p-6"
+      style={{ animationDelay: `${Math.min(index, 8) * 60}ms` }}
+    >
+      <div className="flex items-start gap-4">
+        <CompanyAvatar name={drive.companyName} />
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-center gap-2">
+            <h2 className="text-lg font-bold text-slate-900">{drive.companyName}</h2>
+            <span className={`chip px-2 py-0.5 text-[11px] ${TIER_TONE[drive.tier] ?? TIER_TONE[3]}`}>
+              Tier {drive.tier}
+            </span>
+          </div>
+          <p className="text-sm text-slate-600">{drive.role}</p>
+        </div>
+        <div className="shrink-0 text-right">
+          <p className="text-lg font-extrabold text-emerald-600">{formatInr(drive.ctc)}</p>
+          <p className="text-[11px] font-medium text-slate-400">per year</p>
+        </div>
       </div>
-      <p className="text-sm text-slate-600">{drive.role}</p>
 
-      <dl className="mt-3 flex flex-wrap gap-x-5 gap-y-1 text-xs text-slate-500">
-        <Detail label="Deadline" value={deadline} />
+      <div className="mt-4 flex flex-wrap gap-2">
+        <span className="chip bg-indigo-50 text-indigo-700">
+          <Icon name="calendar" className="size-3.5" />
+          Deadline {deadline}
+        </span>
+        {closed ? (
+          <span className="chip bg-slate-100 text-slate-500">Applications closed</span>
+        ) : (
+          daysLeft <= 7 && (
+            <span className="chip animate-pulse bg-rose-100 text-rose-700">
+              <Icon name="clock" className="size-3.5" />
+              {daysLeft <= 1 ? "Closes within a day" : `Closes in ${daysLeft} days`}
+            </span>
+          )
+        )}
+      </div>
+
+      <dl className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4">
         {drive.cgpaCutoff !== null && <Detail label="CGPA" value={`${drive.cgpaCutoff}+`} />}
         {drive.tenthCutoff !== null && <Detail label="10th" value={`${drive.tenthCutoff}%+`} />}
-        {drive.twelfthCutoff !== null && (
-          <Detail label="12th" value={`${drive.twelfthCutoff}%+`} />
-        )}
+        {drive.twelfthCutoff !== null && <Detail label="12th" value={`${drive.twelfthCutoff}%+`} />}
         <Detail
           label="Backlogs"
           value={
@@ -313,10 +383,31 @@ function DriveCard({
         />
       </dl>
 
-      <p className="mt-3 text-xs text-slate-500">{drive.eligibleBranches.join(" · ")}</p>
+      {drive.eligibleBranches.length > 0 && (
+        <div className="mt-3 flex flex-wrap gap-1.5">
+          {drive.eligibleBranches.map((branch) => (
+            <span key={branch} className="chip bg-violet-50 px-2 py-0.5 text-[11px] text-violet-700">
+              {branch}
+            </span>
+          ))}
+        </div>
+      )}
 
       {drive.description && (
-        <p className="mt-3 text-sm text-slate-600">{drive.description}</p>
+        <div className="mt-4">
+          <p className={`text-sm leading-relaxed text-slate-600 ${longDescription && !expanded ? "line-clamp-3" : ""}`}>
+            {drive.description}
+          </p>
+          {longDescription && (
+            <button
+              type="button"
+              onClick={() => setExpanded((open) => !open)}
+              className="mt-1 text-xs font-semibold text-violet-600 hover:underline"
+            >
+              {expanded ? "Show less" : "Read more"}
+            </button>
+          )}
+        </div>
       )}
 
       {/*
@@ -324,10 +415,11 @@ function DriveCard({
         something they do as a student, deleting is something they do as the cell. The
         two are independent, so this is two checks rather than one either/or.
       */}
-      <div className="mt-4 flex flex-wrap items-center gap-2">
+      <div className="mt-auto flex flex-wrap items-center gap-2 pt-5">
         {isStudent &&
           (application && application.status !== "WITHDRAWN" ? (
-            <span className="rounded-lg bg-slate-100 px-3 py-1.5 text-sm font-medium text-slate-600">
+            <span className={`chip px-3 py-1.5 text-sm ${APPLICATION_TONE[application.status]}`}>
+              <Icon name="check" className="size-3.5" />
               {application.status === "APPLIED" ? "Applied" : application.status.toLowerCase()}
             </span>
           ) : (
@@ -335,30 +427,29 @@ function DriveCard({
             // backend accepts a fresh POST here. A withdrawn row reopens rather than
             // duplicates, since applying is blocked only by an active or decided
             // application, not by history.
-            <button
-              onClick={onApply}
-              disabled={closed}
-              className="rounded-lg bg-slate-900 px-3 py-1.5 text-sm font-medium text-white hover:bg-slate-700 disabled:opacity-40"
-            >
+            <button onClick={onApply} disabled={closed} className="btn btn-sm btn-primary">
               {closed ? "Closed" : "Apply"}
             </button>
           ))}
 
+        {isStudent && (
+          <button onClick={onResumeFeedback} className="btn btn-sm btn-secondary">
+            <Icon name="sparkles" />
+            Get resume feedback
+          </button>
+        )}
+
         {canManage && (
-          <>
-            <button
-              onClick={onEdit}
-              className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-100"
-            >
+          <div className="ml-auto flex gap-2">
+            <button onClick={onEdit} className="btn btn-sm btn-secondary">
+              <Icon name="pencil" />
               Edit
             </button>
-            <button
-              onClick={onDelete}
-              className="rounded-lg border border-red-300 px-3 py-1.5 text-sm font-medium text-red-700 hover:bg-red-50"
-            >
+            <button onClick={onDelete} className="btn btn-sm btn-danger">
+              <Icon name="trash" />
               Delete
             </button>
-          </>
+          </div>
         )}
       </div>
     </li>
@@ -367,9 +458,9 @@ function DriveCard({
 
 function Detail({ label, value }: { label: string; value: string }) {
   return (
-    <div>
-      <dt className="inline text-slate-400">{label}: </dt>
-      <dd className="inline text-slate-600">{value}</dd>
+    <div className="rounded-xl bg-slate-50/80 px-3 py-2 ring-1 ring-slate-100">
+      <dt className="text-[10px] font-semibold tracking-wider text-slate-400 uppercase">{label}</dt>
+      <dd className="text-sm font-semibold text-slate-700">{value}</dd>
     </div>
   );
 }

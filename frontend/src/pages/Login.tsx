@@ -3,6 +3,8 @@ import { Link, useLocation, useNavigate } from "react-router-dom";
 
 import { login, logout } from "../api/auth";
 import { ApiError } from "../api/client";
+import AuthLayout from "../components/AuthLayout";
+import { Icon, Spinner } from "../components/ui";
 
 type Mode = "student" | "administration";
 
@@ -31,8 +33,9 @@ export default function Login() {
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
-  // Where ProtectedRoute wanted to send them before it bounced them here.
-  const destination = (location.state as { from?: string } | null)?.from ?? "/drives";
+  // Where ProtectedRoute wanted to send them before it bounced them here - otherwise their
+  // own dashboard, which shows the student, recruiter or admin view by role.
+  const destination = (location.state as { from?: string } | null)?.from ?? "/dashboard";
 
   function switchMode(next: Mode) {
     setMode(next);
@@ -73,79 +76,88 @@ export default function Login() {
   }
 
   return (
-    <main className="flex min-h-screen items-center justify-center bg-slate-50 p-6">
-      <form
-        onSubmit={handleSubmit}
-        className="w-full max-w-sm rounded-xl border border-slate-200 bg-white p-8 shadow-sm"
-      >
-        <div className="flex gap-1 rounded-lg bg-slate-100 p-1 text-sm">
+    <AuthLayout>
+      <form onSubmit={handleSubmit} className="mx-auto w-full max-w-sm">
+        <div className="flex gap-1 rounded-2xl bg-slate-100/80 p-1 text-sm ring-1 ring-slate-200/60">
           <ModeButton active={mode === "student"} onClick={() => switchMode("student")}>
             Student
           </ModeButton>
-          <ModeButton
-            active={mode === "administration"}
-            onClick={() => switchMode("administration")}
-          >
+          <ModeButton active={mode === "administration"} onClick={() => switchMode("administration")}>
             Administration
           </ModeButton>
         </div>
 
-        <h1 className="mt-4 text-2xl font-semibold text-slate-900">
+        <h1 className="mt-6 text-3xl font-extrabold tracking-tight text-slate-900">
           {mode === "administration" ? "Administration sign-in" : "Sign in"}
         </h1>
-        <p className="mt-1 text-sm text-slate-500">Placement Prep</p>
+        <p className="mt-1 text-sm text-slate-500">
+          {mode === "administration"
+            ? "For the person in charge of the placement cell."
+            : "Welcome back - pick up where you left off."}
+        </p>
 
         {error && (
-          <p
-            role="alert"
-            className="mt-4 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700"
-          >
+          <p role="alert" className="alert-error animate-pop mt-5">
             {error}
           </p>
         )}
 
-        <label className="mt-6 block text-sm font-medium text-slate-700">
+        <label className="label mt-6">
           Email
-          <input
-            type="email"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            required
-            autoComplete="email"
-            className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-slate-900 outline-none focus:border-slate-900"
-          />
+          <span className="relative block">
+            <span className="pointer-events-none absolute top-1/2 left-3.5 mt-0.75 -translate-y-1/2 text-slate-400">
+              <Icon name="mail" />
+            </span>
+            <input
+              type="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              required
+              autoComplete="email"
+              placeholder="name@ei.nits.ac.in"
+              className="input pl-10"
+            />
+          </span>
         </label>
 
-        <label className="mt-4 block text-sm font-medium text-slate-700">
+        <label className="label mt-4">
           Password
-          <input
-            type="password"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            required
-            autoComplete="current-password"
-            className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-slate-900 outline-none focus:border-slate-900"
-          />
+          <span className="relative block">
+            <span className="pointer-events-none absolute top-1/2 left-3.5 mt-0.75 -translate-y-1/2 text-slate-400">
+              <Icon name="lock" />
+            </span>
+            <input
+              type="password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              required
+              autoComplete="current-password"
+              className="input pl-10"
+            />
+          </span>
         </label>
 
-        <button
-          type="submit"
-          disabled={submitting}
-          className="mt-6 w-full rounded-lg bg-slate-900 px-4 py-2 font-medium text-white hover:bg-slate-700 disabled:opacity-50"
-        >
-          {submitting ? "Signing in..." : "Sign in"}
+        <button type="submit" disabled={submitting} className="btn btn-primary btn-lg mt-7 w-full">
+          {submitting ? (
+            <>
+              <Spinner />
+              Signing in...
+            </>
+          ) : (
+            "Sign in"
+          )}
         </button>
 
         {mode === "student" && (
-          <p className="mt-4 text-center text-sm text-slate-600">
+          <p className="mt-6 text-center text-sm text-slate-600">
             No account?{" "}
-            <Link to="/register" className="font-medium text-slate-900 underline">
+            <Link to="/register" className="font-semibold text-violet-600 hover:underline">
               Register
             </Link>
           </p>
         )}
       </form>
-    </main>
+    </AuthLayout>
   );
 }
 
@@ -155,8 +167,10 @@ function ModeButton(props: { active: boolean; onClick: () => void; children: Rea
       type="button"
       onClick={props.onClick}
       className={[
-        "flex-1 rounded-md px-3 py-1.5 font-medium transition-colors",
-        props.active ? "bg-white text-slate-900 shadow-sm" : "text-slate-500 hover:text-slate-700",
+        "flex-1 rounded-xl px-3 py-2 font-semibold transition",
+        props.active
+          ? "bg-white text-violet-700 shadow-md shadow-violet-500/10"
+          : "text-slate-500 hover:text-slate-700",
       ].join(" ")}
     >
       {props.children}

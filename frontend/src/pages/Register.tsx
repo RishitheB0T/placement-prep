@@ -3,6 +3,8 @@ import { Link, useNavigate } from "react-router-dom";
 
 import { register } from "../api/auth";
 import { ApiError } from "../api/client";
+import AuthLayout from "../components/AuthLayout";
+import { Icon, Spinner } from "../components/ui";
 
 export default function Register() {
   const navigate = useNavigate();
@@ -36,70 +38,116 @@ export default function Register() {
   }
 
   return (
-    <main className="flex min-h-screen items-center justify-center bg-slate-50 p-6">
-      <form
-        onSubmit={handleSubmit}
-        className="w-full max-w-sm rounded-xl border border-slate-200 bg-white p-8 shadow-sm"
-      >
-        <h1 className="text-2xl font-semibold text-slate-900">Create an account</h1>
-        <p className="mt-1 text-sm text-slate-500">Students only</p>
+    <AuthLayout>
+      <form onSubmit={handleSubmit} className="mx-auto w-full max-w-sm">
+        <p className="chip bg-sky-100 text-sky-700">
+          <span className="chip-dot" />
+          Students only
+        </p>
+        <h1 className="mt-4 text-3xl font-extrabold tracking-tight text-slate-900">Create an account</h1>
+        <p className="mt-1 text-sm text-slate-500">Takes a minute. You will add your marks right after.</p>
 
         {error && (
-          <p
-            role="alert"
-            className="mt-4 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700"
-          >
+          <p role="alert" className="alert-error animate-pop mt-5">
             {error}
           </p>
         )}
 
-        <label className="mt-6 block text-sm font-medium text-slate-700">
+        <label className="label mt-6">
           Email
-          <input
-            type="email"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            required
-            autoComplete="email"
-            className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-slate-900 outline-none focus:border-slate-900"
-          />
-        </label>
-
-        <label className="mt-4 block text-sm font-medium text-slate-700">
-          Password
-          <input
-            type="password"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            required
-            // Mirrors the backend rule so the browser catches it before a round trip.
-            // The server still enforces it: client-side validation is a convenience,
-            // never a control, since anyone can call the API directly.
-            minLength={8}
-            maxLength={72}
-            autoComplete="new-password"
-            className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-slate-900 outline-none focus:border-slate-900"
-          />
-          <span className="mt-1 block text-xs font-normal text-slate-500">
-            At least 8 characters
+          <span className="relative block">
+            <span className="pointer-events-none absolute top-1/2 left-3.5 mt-0.75 -translate-y-1/2 text-slate-400">
+              <Icon name="mail" />
+            </span>
+            <input
+              type="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              required
+              autoComplete="email"
+              placeholder="name@ei.nits.ac.in"
+              className="input pl-10"
+            />
           </span>
+          <span className="hint">Use your college address - it ends in .nits.ac.in</span>
         </label>
 
-        <button
-          type="submit"
-          disabled={submitting}
-          className="mt-6 w-full rounded-lg bg-slate-900 px-4 py-2 font-medium text-white hover:bg-slate-700 disabled:opacity-50"
-        >
-          {submitting ? "Creating..." : "Create account"}
+        <label className="label mt-4">
+          Password
+          <span className="relative block">
+            <span className="pointer-events-none absolute top-1/2 left-3.5 mt-0.75 -translate-y-1/2 text-slate-400">
+              <Icon name="lock" />
+            </span>
+            <input
+              type="password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              required
+              // Mirrors the backend rule so the browser catches it before a round trip.
+              // The server still enforces it: client-side validation is a convenience,
+              // never a control, since anyone can call the API directly.
+              minLength={8}
+              maxLength={72}
+              autoComplete="new-password"
+              className="input pl-10"
+            />
+          </span>
+          <PasswordStrength password={password} />
+        </label>
+
+        <button type="submit" disabled={submitting} className="btn btn-primary btn-lg mt-7 w-full">
+          {submitting ? (
+            <>
+              <Spinner />
+              Creating...
+            </>
+          ) : (
+            "Create account"
+          )}
         </button>
 
-        <p className="mt-4 text-center text-sm text-slate-600">
+        <p className="mt-6 text-center text-sm text-slate-600">
           Already registered?{" "}
-          <Link to="/login" className="font-medium text-slate-900 underline">
+          <Link to="/login" className="font-semibold text-violet-600 hover:underline">
             Sign in
           </Link>
         </p>
       </form>
-    </main>
+    </AuthLayout>
+  );
+}
+
+/**
+ * A four-segment bar under the password field. Only the length rule is enforced by the
+ * server; the rest is a nudge towards a password that is harder to guess.
+ */
+function PasswordStrength({ password }: { password: string }) {
+  const checks = [
+    password.length >= 8,
+    /[A-Z]/.test(password) && /[a-z]/.test(password),
+    /\d/.test(password),
+    /[^A-Za-z0-9]/.test(password) || password.length >= 14,
+  ];
+  const score = checks.filter(Boolean).length;
+  const colours = ["bg-rose-400", "bg-amber-400", "bg-sky-400", "bg-emerald-500"];
+
+  return (
+    <span className="mt-2 block">
+      <span aria-hidden="true" className="flex gap-1.5">
+        {checks.map((_, index) => (
+          <span
+            key={index}
+            className={`h-1.5 flex-1 rounded-full transition-colors duration-300 ${
+              index < score ? colours[score - 1] : "bg-slate-200"
+            }`}
+          />
+        ))}
+      </span>
+      <span className="hint">
+        {password.length < 8
+          ? "At least 8 characters"
+          : ["Weak", "Fair", "Good", "Strong"][score - 1] + " - mixing cases, numbers and symbols helps"}
+      </span>
+    </span>
   );
 }

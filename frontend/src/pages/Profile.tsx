@@ -4,6 +4,8 @@ import { useNavigate } from "react-router-dom";
 import { fetchMyProfile, updateMyProfile, updateMyStaffProfile } from "../api/auth";
 import { ApiError } from "../api/client";
 import type { UserProfile } from "../api/types";
+import AppHeader from "../components/AppHeader";
+import { Icon, PageHero, Spinner } from "../components/ui";
 
 /**
  * Loads the signed-in account, then hands off to whichever form applies.
@@ -45,33 +47,97 @@ export default function Profile() {
     };
   }, [navigate]);
 
-  if (loading) {
-    return <main className="p-8 text-slate-500">Loading...</main>;
-  }
+  return (
+    <>
+      <AppHeader profile={profile} active="profile" />
 
-  if (error || !profile) {
-    return (
-      <main className="mx-auto max-w-xl p-6">
-        <p role="alert" className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
-          {error ?? "Could not load your profile"}
-        </p>
+      <main className="mx-auto max-w-5xl px-4 pt-8 pb-16">
+        {loading ? (
+          <div className="flex items-center gap-3 py-16 text-slate-500">
+            <Spinner className="size-5 text-violet-500" />
+            Loading...
+          </div>
+        ) : error || !profile ? (
+          <p role="alert" className="alert-error">
+            {error ?? "Could not load your profile"}
+          </p>
+        ) : (
+          <>
+            <PageHero
+              eyebrow={profile.role === "TNP_PIC" ? "Staff details" : "Academic details"}
+              title={profile.role === "TNP_PIC" ? "Administration profile" : "Your profile"}
+              subtitle={
+                profile.role === "TNP_PIC"
+                  ? "How students and coordinators see the person in charge of the cell."
+                  : "These marks decide which drives you are eligible for - keep them accurate."
+              }
+            />
+
+            <div className="mt-8 grid items-start gap-6 lg:grid-cols-3">
+              <IdentityCard profile={profile} />
+              <div className="lg:col-span-2">
+                {profile.role === "TNP_PIC" ? (
+                  <StaffProfileForm profile={profile} />
+                ) : (
+                  <StudentProfileForm profile={profile} />
+                )}
+              </div>
+            </div>
+          </>
+        )}
       </main>
-    );
-  }
+    </>
+  );
+}
+
+/** Who is signed in, and - for a student - how much of the profile is filled in. */
+function IdentityCard({ profile }: { profile: UserProfile }) {
+  const academic = [profile.cgpa, profile.branch, profile.tenthPercentage, profile.twelfthPercentage];
+  const filled = academic.filter((value) => value !== null && value !== "").length;
+  const percent = Math.round((filled / academic.length) * 100);
 
   return (
-    <main className="mx-auto max-w-xl p-6">
-      <h1 className="text-2xl font-semibold text-slate-900">
-        {profile.role === "TNP_PIC" ? "Administration profile" : "Your profile"}
-      </h1>
-      <p className="mt-1 text-sm text-slate-500">{profile.email}</p>
+    <aside className="card animate-fade-up overflow-hidden">
+      <div className="h-20 bg-linear-to-r from-indigo-500 via-violet-500 to-fuchsia-500" />
+      <div className="-mt-10 px-6 pb-6">
+        <span
+          aria-hidden="true"
+          className="grid size-20 place-items-center rounded-3xl border-4 border-white bg-linear-to-br from-sky-400 to-violet-600 text-3xl font-extrabold text-white shadow-lg"
+        >
+          {profile.email.charAt(0).toUpperCase()}
+        </span>
+        <p className="mt-3 truncate text-sm font-semibold text-slate-900">{profile.email}</p>
+        <p className="text-xs text-slate-500">
+          {profile.role === "TNP_PIC"
+            ? "Admin"
+            : profile.role === "TNP_COORDINATOR"
+              ? "Recruiter"
+              : "Student"}
+        </p>
 
-      {profile.role === "TNP_PIC" ? (
-        <StaffProfileForm profile={profile} />
-      ) : (
-        <StudentProfileForm profile={profile} />
-      )}
-    </main>
+        {profile.role !== "TNP_PIC" && (
+          <div className="mt-5">
+            <div className="flex items-center justify-between text-xs font-semibold">
+              <span className="text-slate-600">Profile completeness</span>
+              <span className={percent === 100 ? "text-emerald-600" : "text-amber-600"}>{percent}%</span>
+            </div>
+            <div className="mt-2 h-2.5 overflow-hidden rounded-full bg-slate-100">
+              <div
+                className={`h-full rounded-full bg-linear-to-r transition-all duration-700 ${
+                  percent === 100 ? "from-emerald-400 to-teal-500" : "from-amber-400 to-orange-500"
+                }`}
+                style={{ width: `${percent}%` }}
+              />
+            </div>
+            <p className="mt-2 text-xs text-slate-500">
+              {percent === 100
+                ? "All set - eligibility checks will use these marks."
+                : "Finish this to unlock the drives you qualify for."}
+            </p>
+          </div>
+        )}
+      </div>
+    </aside>
   );
 }
 
@@ -87,6 +153,7 @@ interface StudentFormState {
 function StudentProfileForm({ profile }: { profile: UserProfile }) {
   const navigate = useNavigate();
   const [error, setError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
   const [form, setForm] = useState<StudentFormState>({
     cgpa: profile.cgpa?.toString() ?? "",
     branch: profile.branch ?? "",
@@ -102,6 +169,7 @@ function StudentProfileForm({ profile }: { profile: UserProfile }) {
   async function handleSubmit(event: FormEvent) {
     event.preventDefault();
     setError(null);
+    setSaving(true);
 
     try {
       // The inputs hold strings; the API expects numbers. Converting here rather than in
@@ -119,24 +187,27 @@ function StudentProfileForm({ profile }: { profile: UserProfile }) {
       navigate("/drives", { replace: true });
     } catch (e) {
       setError(e instanceof ApiError ? e.message : "Could not save your profile");
+    } finally {
+      setSaving(false);
     }
   }
 
   return (
-    <>
+    <form onSubmit={handleSubmit} className="card animate-fade-up p-6 [animation-delay:80ms] sm:p-8">
       {!profile.complete && (
-        <p className="mt-4 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
+        <p className="mb-6 flex items-start gap-2 rounded-xl border border-amber-200 bg-amber-50/90 px-4 py-3 text-sm text-amber-800">
+          <Icon name="warning" className="mt-0.5 size-4" />
           Fill this in to see which drives you are eligible for.
         </p>
       )}
 
       {error && (
-        <p role="alert" className="mt-4 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+        <p role="alert" className="alert-error animate-pop mb-6">
           {error}
         </p>
       )}
 
-      <form onSubmit={handleSubmit} className="mt-6 space-y-4">
+      <div className="grid gap-5 sm:grid-cols-2">
         <Field
           label="CGPA"
           value={form.cgpa}
@@ -145,6 +216,7 @@ function StudentProfileForm({ profile }: { profile: UserProfile }) {
           step="0.01"
           min="0"
           max="10"
+          placeholder="8.25"
         />
         <Field
           label="Branch"
@@ -161,6 +233,7 @@ function StudentProfileForm({ profile }: { profile: UserProfile }) {
           step="0.01"
           min="0"
           max="100"
+          placeholder="88.5"
         />
         <Field
           label="12th percentage"
@@ -170,6 +243,7 @@ function StudentProfileForm({ profile }: { profile: UserProfile }) {
           step="0.01"
           min="0"
           max="100"
+          placeholder="85"
         />
         <Field
           label="Active backlogs"
@@ -178,10 +252,10 @@ function StudentProfileForm({ profile }: { profile: UserProfile }) {
           type="number"
           min="0"
         />
+      </div>
 
-        <FormActions navigate={navigate} />
-      </form>
-    </>
+      <FormActions navigate={navigate} saving={saving} />
+    </form>
   );
 }
 
@@ -202,6 +276,7 @@ interface StaffFormState {
 function StaffProfileForm({ profile }: { profile: UserProfile }) {
   const navigate = useNavigate();
   const [error, setError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
   const [form, setForm] = useState<StaffFormState>({
     designation: profile.designation ?? "",
     department: profile.department ?? "",
@@ -220,6 +295,7 @@ function StaffProfileForm({ profile }: { profile: UserProfile }) {
   async function handleSubmit(event: FormEvent) {
     event.preventDefault();
     setError(null);
+    setSaving(true);
 
     try {
       await updateMyStaffProfile({
@@ -232,18 +308,20 @@ function StaffProfileForm({ profile }: { profile: UserProfile }) {
       navigate("/drives", { replace: true });
     } catch (e) {
       setError(e instanceof ApiError ? e.message : "Could not save your profile");
+    } finally {
+      setSaving(false);
     }
   }
 
   return (
-    <>
+    <form onSubmit={handleSubmit} className="card animate-fade-up p-6 [animation-delay:80ms] sm:p-8">
       {error && (
-        <p role="alert" className="mt-4 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+        <p role="alert" className="alert-error animate-pop mb-6">
           {error}
         </p>
       )}
 
-      <form onSubmit={handleSubmit} className="mt-6 space-y-4">
+      <div className="grid gap-5 sm:grid-cols-2">
         <Field
           label="Designation"
           value={form.designation}
@@ -278,28 +356,22 @@ function StaffProfileForm({ profile }: { profile: UserProfile }) {
           type="tel"
           required={false}
         />
+      </div>
 
-        <FormActions navigate={navigate} />
-      </form>
-    </>
+      <FormActions navigate={navigate} saving={saving} />
+    </form>
   );
 }
 
 /** Save + back-to-drives, identical on both forms. */
-function FormActions({ navigate }: { navigate: ReturnType<typeof useNavigate> }) {
+function FormActions({ navigate, saving }: { navigate: ReturnType<typeof useNavigate>; saving: boolean }) {
   return (
-    <div className="flex gap-3 pt-2">
-      <button
-        type="submit"
-        className="rounded-lg bg-slate-900 px-4 py-2 font-medium text-white hover:bg-slate-700"
-      >
+    <div className="mt-8 flex flex-wrap gap-3 border-t border-slate-100 pt-6">
+      <button type="submit" disabled={saving} className="btn btn-primary">
+        {saving ? <Spinner /> : <Icon name="check" />}
         Save
       </button>
-      <button
-        type="button"
-        onClick={() => navigate("/drives")}
-        className="rounded-lg border border-slate-300 px-4 py-2 font-medium text-slate-700 hover:bg-slate-100"
-      >
+      <button type="button" onClick={() => navigate("/drives")} className="btn btn-secondary">
         Back to drives
       </button>
     </div>
@@ -320,7 +392,7 @@ function Field(props: {
   required?: boolean;
 }) {
   return (
-    <label className="block text-sm font-medium text-slate-700">
+    <label className="label">
       {props.label}
       <input
         type={props.type ?? "text"}
@@ -331,11 +403,9 @@ function Field(props: {
         min={props.min}
         max={props.max}
         placeholder={props.placeholder}
-        className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-slate-900 outline-none focus:border-slate-900"
+        className="input"
       />
-      {props.hint && (
-        <span className="mt-1 block text-xs font-normal text-slate-500">{props.hint}</span>
-      )}
+      {props.hint && <span className="hint">{props.hint}</span>}
     </label>
   );
 }

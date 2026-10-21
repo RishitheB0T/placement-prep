@@ -85,6 +85,15 @@ describe("Applications", () => {
       // the placeholder option and once as the empty-state paragraph.
       expect(screen.getByRole("combobox")).toBeInTheDocument();
     });
+
+    /** The dashboard's "Review applicants" button links here with ?driveId=10. */
+    it("opens straight onto a drive's applicants when one is named in the address", async () => {
+      renderPage(<Applications />, { route: "/applications?driveId=10" });
+
+      expect(await screen.findByRole("heading", { name: "Applicants" })).toBeInTheDocument();
+      expect(await screen.findByText("rahul@cse.nits.ac.in")).toBeInTheDocument();
+      expect(applicationsApi.fetchApplicationsForDrive).toHaveBeenCalledWith(10);
+    });
   });
 
   describe("the person in charge", () => {

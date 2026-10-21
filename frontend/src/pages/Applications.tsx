@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 
 import {
   fetchApplicationsForDrive,
@@ -7,10 +7,12 @@ import {
   updateApplicationStatus,
   withdrawApplication,
 } from "../api/applications";
-import { fetchMyProfile, logout } from "../api/auth";
+import { fetchMyProfile } from "../api/auth";
 import { ApiError } from "../api/client";
 import { fetchAllDrives } from "../api/drives";
 import type { Application, ApplicationStatus, Drive, UserProfile } from "../api/types";
+import AppHeader from "../components/AppHeader";
+import { CompanyAvatar, EmptyState, Icon, PageHero, SkeletonCards } from "../components/ui";
 
 const STATUSES: ApplicationStatus[] = ["APPLIED", "SHORTLISTED", "REJECTED", "SELECTED", "WITHDRAWN"];
 
@@ -33,6 +35,8 @@ type View = "mine" | "applicants";
  */
 export default function Applications() {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const requestedDrive = searchParams.get("driveId") === null ? null : Number(searchParams.get("driveId"));
 
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [applications, setApplications] = useState<Application[]>([]);
@@ -55,6 +59,15 @@ export default function Applications() {
       setProfile(me);
       setDrives(allDrives);
 
+      // Arriving from a dashboard's "Review applicants" button, as ?driveId=12: a
+      // recruiter or admin opens straight onto that drive's applicants.
+      if (requestedDrive !== null && me.role !== "STUDENT") {
+        setView("applicants");
+        setSelectedDrive(requestedDrive);
+        setApplications(await fetchApplicationsForDrive(requestedDrive));
+        return;
+      }
+
       const student = me.role !== "TNP_PIC";
       // The PIC has no applications of their own, so they open straight into review.
       setView(student ? "mine" : "applicants");
@@ -70,7 +83,7 @@ export default function Applications() {
     } finally {
       setLoading(false);
     }
-  }, [navigate]);
+  }, [navigate, requestedDrive]);
 
   useEffect(() => {
     void load();
@@ -90,11 +103,6 @@ export default function Applications() {
         setError(e instanceof ApiError ? e.message : "Could not load your applications");
       }
     }
-  }
-
-  function handleLogout() {
-    logout();
-    navigate("/login", { replace: true });
   }
 
   async function showApplicants(driveId: number) {
@@ -128,150 +136,203 @@ export default function Applications() {
   // The API only ever returns a bare driveId - resolving it to a company name here, from
   // the drives list already fetched for this page, is cheaper than the backend embedding
   // drive details in every application row on every request.
-  const driveName = (id: number) => drives.find((d) => d.id === id)?.companyName ?? `Drive ${id}`;
+  const driveOf = (id: number) => drives.find((d) => d.id === id);
+  const driveName = (id: number) => driveOf(id)?.companyName ?? `Drive ${id}`;
+
+  // How many applications sit in each status, for the coloured summary row. Each chip is
+  // one string ("2 shortlisted") rather than a number and a word in separate elements.
+  const counts = STATUSES.map((status) => ({
+    status,
+    count: applications.filter((a) => a.status === status).length,
+  })).filter((entry) => entry.count > 0);
 
   return (
-    <main className="mx-auto max-w-3xl p-6">
-      <header className="flex items-baseline justify-between gap-4">
-        <h1 className="text-2xl font-semibold text-slate-900">
-          {view === "mine" ? "My applications" : "Applicants"}
-        </h1>
-        <div className="flex gap-2">
-          <button
-            onClick={() => navigate("/drives")}
-            className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-100"
-          >
-            Drives
-          </button>
-          <button
-            onClick={() => navigate("/profile")}
-            className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-100"
-          >
-            Profile
-          </button>
-          <button
-            onClick={handleLogout}
-            className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-100"
-          >
-            Sign out
-          </button>
-        </div>
-      </header>
+    <>
+      <AppHeader profile={profile} active="applications" />
 
-      {showTabs && (
-        <div className="mt-6 flex gap-2 border-b border-slate-200">
-          <TabButton active={view === "mine"} onClick={() => void switchView("mine")}>
-            My applications
-          </TabButton>
-          <TabButton active={view === "applicants"} onClick={() => void switchView("applicants")}>
-            Applicants
-          </TabButton>
-        </div>
-      )}
+      <main className="mx-auto max-w-5xl px-4 pt-8 pb-16">
+        <PageHero
+          eyebrow={view === "mine" ? "Your journey" : "Review"}
+          title={view === "mine" ? "My applications" : "Applicants"}
+          subtitle={
+            view === "mine"
+              ? "Every drive you applied to, and where the placement cell has got to with it."
+              : "Pick a drive to see who applied, then move each application along."
+          }
+        />
 
-      {view === "applicants" && canManage && (
-        <div className="mt-4">
-          <label className="text-sm text-slate-600">
-            Drive
-            <select
-              value={selectedDrive ?? ""}
-              onChange={(e) => void showApplicants(Number(e.target.value))}
-              className="ml-2 rounded-lg border border-slate-300 px-2 py-1.5 text-sm"
-            >
-              <option value="">Choose a drive...</option>
-              {drives.map((d) => (
-                <option key={d.id} value={d.id}>
-                  {d.companyName} - {d.role}
-                </option>
-              ))}
-            </select>
-          </label>
-        </div>
-      )}
+        {showTabs && (
+          <div className="mt-8 inline-flex rounded-2xl bg-white/70 p-1 shadow-sm ring-1 ring-slate-200/70">
+            <TabButton active={view === "mine"} onClick={() => void switchView("mine")}>
+              My applications
+            </TabButton>
+            <TabButton active={view === "applicants"} onClick={() => void switchView("applicants")}>
+              Applicants
+            </TabButton>
+          </div>
+        )}
 
-      {loading && <p className="mt-6 text-slate-500">Loading...</p>}
-
-      {error && (
-        <p
-          role="alert"
-          className="mt-6 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700"
-        >
-          {error}
-        </p>
-      )}
-
-      {!loading && applications.length === 0 && (
-        <p className="mt-6 text-slate-500">
-          {view === "mine"
-            ? "You have not applied to any drives yet."
-            : selectedDrive === null
-              ? "Choose a drive to see who applied."
-              : // Distinguishing these two matters: otherwise a drive nobody applied to
-                // would look identical to not having chosen a drive at all.
-                "Nobody has applied to this drive yet."}
-        </p>
-      )}
-
-      <ul className="mt-6 space-y-3">
-        {applications.map((application) => (
-          <li key={application.id} className="rounded-xl border border-slate-200 bg-white p-4">
-            <div className="flex items-baseline justify-between gap-4">
-              <h2 className="font-semibold text-slate-900">
-                {view === "applicants"
-                  ? // The backend labels every applicant row with an email. The id is the
-                    // fallback for a row whose account has since gone missing, which the
-                    // lookup reports by simply having no entry for it.
-                    (application.studentEmail ?? `Student #${application.studentId}`)
-                  : driveName(application.driveId)}
-              </h2>
-              <StatusBadge status={application.status} />
-            </div>
-
-            <p className="mt-1 text-xs text-slate-500">
-              Applied {new Date(application.appliedAt).toLocaleDateString("en-IN")}
-            </p>
-
-            {application.note && <p className="mt-2 text-sm text-slate-600">{application.note}</p>}
-
-            {view === "applicants" ? (
-              <div className="mt-3 flex flex-wrap gap-2">
-                {STATUSES.filter((s) => s !== "WITHDRAWN" && s !== application.status).map((status) => (
-                  <button
-                    key={status}
-                    onClick={() => void changeStatus(application.id, status)}
-                    className="rounded-lg border border-slate-300 px-2.5 py-1 text-xs font-medium text-slate-700 hover:bg-slate-100"
-                  >
-                    Mark {status.toLowerCase()}
-                  </button>
+        {view === "applicants" && canManage && (
+          <div className="card animate-fade-up mt-6 flex flex-col gap-3 p-5 sm:flex-row sm:items-center">
+            <span className="grid size-10 shrink-0 place-items-center rounded-xl bg-linear-to-br from-sky-500 to-indigo-500 text-white">
+              <Icon name="briefcase" className="size-5" />
+            </span>
+            <label className="label flex-1">
+              Drive
+              <select
+                value={selectedDrive ?? ""}
+                onChange={(e) => void showApplicants(Number(e.target.value))}
+                className="input"
+              >
+                <option value="">Choose a drive...</option>
+                {drives.map((d) => (
+                  <option key={d.id} value={d.id}>
+                    {d.companyName} - {d.role}
+                  </option>
                 ))}
-              </div>
-            ) : (
-              application.status !== "WITHDRAWN" && (
-                <button
-                  onClick={() => void withdraw(application.id)}
-                  className="mt-3 rounded-lg border border-slate-300 px-2.5 py-1 text-xs font-medium text-slate-700 hover:bg-slate-100"
+              </select>
+            </label>
+          </div>
+        )}
+
+        {!loading && counts.length > 0 && (
+          <div className="animate-fade-up mt-6 flex flex-wrap gap-2">
+            {counts.map(({ status, count }) => (
+              <span key={status} className={`chip px-3 py-1.5 ${STATUS_TONE[status].chip}`}>
+                {`${count} ${status.toLowerCase()}`}
+              </span>
+            ))}
+          </div>
+        )}
+
+        {error && (
+          <p role="alert" className="alert-error animate-pop mt-6">
+            {error}
+          </p>
+        )}
+
+        <div className="mt-6">
+          {loading && <SkeletonCards count={2} />}
+
+          {!loading && applications.length === 0 && (
+            <EmptyState
+              icon={view === "mine" ? "list" : "inbox"}
+              title={view === "mine" ? "No applications yet" : "Nothing to review yet"}
+              action={
+                view === "mine" ? (
+                  <button onClick={() => navigate("/drives")} className="btn btn-primary">
+                    <Icon name="briefcase" />
+                    Browse drives
+                  </button>
+                ) : undefined
+              }
+            >
+              {view === "mine"
+                ? "You have not applied to any drives yet."
+                : selectedDrive === null
+                  ? "Choose a drive to see who applied."
+                  : // Distinguishing these two matters: otherwise a drive nobody applied to
+                    // would look identical to not having chosen a drive at all.
+                    "Nobody has applied to this drive yet."}
+            </EmptyState>
+          )}
+
+          <ul className="space-y-4">
+            {applications.map((application, index) => {
+              const tone = STATUS_TONE[application.status];
+              return (
+                <li
+                  key={application.id}
+                  className="card card-hover animate-fade-up relative overflow-hidden p-5 pl-6"
+                  style={{ animationDelay: `${Math.min(index, 8) * 60}ms` }}
                 >
-                  Withdraw
-                </button>
-              )
-            )}
-          </li>
-        ))}
-      </ul>
-    </main>
+                  {/* A coloured edge on the left, matching the status. */}
+                  <span aria-hidden="true" className={`absolute inset-y-0 left-0 w-1.5 bg-linear-to-b ${tone.edge}`} />
+
+                  <div className="flex items-start gap-4">
+                    {view === "mine" ? (
+                      <CompanyAvatar name={driveName(application.driveId)} size="sm" />
+                    ) : (
+                      <span
+                        aria-hidden="true"
+                        className="grid size-9 shrink-0 place-items-center rounded-xl bg-linear-to-br from-sky-400 to-violet-500 text-sm font-bold text-white"
+                      >
+                        {(application.studentEmail ?? "S").charAt(0).toUpperCase()}
+                      </span>
+                    )}
+
+                    <div className="min-w-0 flex-1">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <h2 className="truncate font-bold text-slate-900">
+                          {view === "applicants"
+                            ? // The backend labels every applicant row with an email. The id is the
+                              // fallback for a row whose account has since gone missing, which the
+                              // lookup reports by simply having no entry for it.
+                              (application.studentEmail ?? `Student #${application.studentId}`)
+                            : driveName(application.driveId)}
+                        </h2>
+                        <StatusBadge status={application.status} />
+                      </div>
+
+                      {view === "mine" && driveOf(application.driveId) && (
+                        <p className="text-sm text-slate-600">{driveOf(application.driveId)?.role}</p>
+                      )}
+
+                      <p className="mt-1 inline-flex items-center gap-1 text-xs text-slate-500">
+                        <Icon name="calendar" className="size-3.5" />
+                        Applied {new Date(application.appliedAt).toLocaleDateString("en-IN")}
+                      </p>
+
+                      {application.note && (
+                        <p className="mt-3 rounded-xl border-l-4 border-violet-300 bg-violet-50/70 px-3 py-2 text-sm text-slate-700 italic">
+                          {application.note}
+                        </p>
+                      )}
+
+                      {view === "applicants" ? (
+                        <div className="mt-4 flex flex-wrap gap-2">
+                          {STATUSES.filter((s) => s !== "WITHDRAWN" && s !== application.status).map((status) => (
+                            <button
+                              key={status}
+                              onClick={() => void changeStatus(application.id, status)}
+                              className={`btn btn-sm ${STATUS_TONE[status].button}`}
+                            >
+                              Mark {status.toLowerCase()}
+                            </button>
+                          ))}
+                        </div>
+                      ) : (
+                        application.status !== "WITHDRAWN" && (
+                          <button
+                            onClick={() => void withdraw(application.id)}
+                            className="btn btn-sm btn-secondary mt-4"
+                          >
+                            Withdraw
+                          </button>
+                        )
+                      )}
+                    </div>
+                  </div>
+                </li>
+              );
+            })}
+          </ul>
+        </div>
+      </main>
+    </>
   );
 }
 
-/** Same underline treatment as the tabs on the drives board, for consistency. */
+/** Same pill treatment as the tabs on the drives board, for consistency. */
 function TabButton(props: { active: boolean; onClick: () => void; children: React.ReactNode }) {
   return (
     <button
       onClick={props.onClick}
       className={[
-        "-mb-px border-b-2 px-3 py-2 text-sm font-medium",
+        "rounded-xl px-4 py-2 text-sm font-semibold transition",
         props.active
-          ? "border-slate-900 text-slate-900"
-          : "border-transparent text-slate-500 hover:text-slate-700",
+          ? "bg-linear-to-r from-indigo-600 to-fuchsia-500 text-white shadow-md shadow-indigo-500/25"
+          : "text-slate-600 hover:bg-white hover:text-indigo-700",
       ].join(" ")}
     >
       {props.children}
@@ -279,17 +340,39 @@ function TabButton(props: { active: boolean; onClick: () => void; children: Reac
   );
 }
 
-function StatusBadge({ status }: { status: ApplicationStatus }) {
-  const tone: Record<ApplicationStatus, string> = {
-    APPLIED: "bg-slate-100 text-slate-700",
-    SHORTLISTED: "bg-amber-100 text-amber-800",
-    SELECTED: "bg-green-100 text-green-800",
-    REJECTED: "bg-red-100 text-red-700",
-    WITHDRAWN: "bg-slate-100 text-slate-500",
-  };
+/** One colour per status, used for the badge, the card's left edge, and the Mark button. */
+const STATUS_TONE: Record<ApplicationStatus, { chip: string; edge: string; button: string }> = {
+  APPLIED: {
+    chip: "bg-sky-100 text-sky-700",
+    edge: "from-sky-400 to-indigo-400",
+    button: "border border-sky-200 bg-sky-50 text-sky-700 hover:bg-sky-100",
+  },
+  SHORTLISTED: {
+    chip: "bg-amber-100 text-amber-800",
+    edge: "from-amber-400 to-orange-400",
+    button: "border border-amber-200 bg-amber-50 text-amber-800 hover:bg-amber-100",
+  },
+  SELECTED: {
+    chip: "bg-emerald-100 text-emerald-700",
+    edge: "from-emerald-400 to-teal-400",
+    button: "border border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100",
+  },
+  REJECTED: {
+    chip: "bg-rose-100 text-rose-700",
+    edge: "from-rose-400 to-pink-400",
+    button: "border border-rose-200 bg-rose-50 text-rose-700 hover:bg-rose-100",
+  },
+  WITHDRAWN: {
+    chip: "bg-slate-100 text-slate-500",
+    edge: "from-slate-300 to-slate-400",
+    button: "border border-slate-200 bg-slate-50 text-slate-600 hover:bg-slate-100",
+  },
+};
 
+function StatusBadge({ status }: { status: ApplicationStatus }) {
   return (
-    <span className={`shrink-0 rounded-full px-2 py-0.5 text-xs font-medium ${tone[status]}`}>
+    <span className={`chip shrink-0 ${STATUS_TONE[status].chip}`}>
+      <span className="chip-dot" />
       {status.toLowerCase()}
     </span>
   );

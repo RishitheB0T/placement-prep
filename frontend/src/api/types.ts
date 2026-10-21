@@ -123,6 +123,77 @@ export interface Application {
 }
 
 /**
+ * Where a resume's review has got to. Uploading creates PENDING; the backend's background
+ * job moves it through PROCESSING to COMPLETED or FAILED, and only FAILED can be retried.
+ */
+export type ResumeStatus = "PENDING" | "PROCESSING" | "COMPLETED" | "FAILED";
+
+/**
+ * Returned by every /api/resumes endpoint. driveId is a bare id like on Application - the
+ * resume page resolves it to a company name from the drives list it already loads.
+ *
+ * score, summary, strengths and improvements are only meaningful once status is
+ * COMPLETED; the two lists are empty arrays, never null, before then.
+ */
+export interface Resume {
+  id: number;
+  driveId: number;
+  originalFilename: string;
+  sizeBytes: number;
+  status: ResumeStatus;
+  /** 0 to 100: how well the resume fits the drive. */
+  score: number | null;
+  summary: string | null;
+  strengths: string[];
+  improvements: string[];
+  /** Set only when status is FAILED, in words meant for the student. */
+  failureReason: string | null;
+  uploadedAt: string;
+  reviewedAt: string | null;
+}
+
+/**
+ * Returned by GET /api/applications/stats - recruiters and admins only. Every status is
+ * present in byStatus, zero included. awaitingReviewByDrive maps a drive id (a string,
+ * since JSON object keys always are) to how many of its applications are still APPLIED.
+ */
+export interface ApplicationStats {
+  byStatus: Record<ApplicationStatus, number>;
+  awaitingReviewByDrive: Record<string, number>;
+}
+
+/**
+ * One earlier message in an assistant conversation. The server keeps no history, so the
+ * page sends the conversation so far with every new message.
+ */
+export interface ChatTurn {
+  text: string;
+  fromAssistant: boolean;
+}
+
+/** Returned by POST /api/agent/chat. */
+export interface ChatResponse {
+  reply: string;
+}
+
+/** One passage of an uploaded job-description PDF that matched a search, best first. */
+export interface JobDescriptionMatch {
+  driveId: number;
+  companyName: string;
+  role: string;
+  excerpt: string;
+  /** How close in meaning the passage is to the search: 0 unrelated, 1 the same meaning. */
+  score: number;
+}
+
+/** Returned after a job-description PDF is uploaded. */
+export interface IndexedJobDescription {
+  driveId: number;
+  /** How many searchable passages the PDF was split into. */
+  passages: number;
+}
+
+/**
  * Body of POST and PUT /api/drives - the same shape serves both, mirroring DriveRequest
  * on the backend. tenthCutoff, twelfthCutoff, maxBacklogs and description are nullable:
  * a null cutoff means the drive sets no requirement for that qualification, and a null

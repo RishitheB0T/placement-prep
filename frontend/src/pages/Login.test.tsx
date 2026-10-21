@@ -21,7 +21,7 @@ describe("Login", () => {
     renderPageWithRoutes(<Login />, {
       route: "/login",
       path: "/login",
-      destinations: { "/drives": "drives board" },
+      destinations: { "/dashboard": "dashboard page" },
     });
 
   const signIn = async (tab?: "Student" | "Administration") => {
@@ -49,7 +49,7 @@ describe("Login", () => {
       renderLogin();
       await signIn();
 
-      expect(await screen.findByText("drives board")).toBeInTheDocument();
+      expect(await screen.findByText("dashboard page")).toBeInTheDocument();
     });
 
     it("lets a coordinator through, since they have no door of their own", async () => {
@@ -57,7 +57,7 @@ describe("Login", () => {
       renderLogin();
       await signIn();
 
-      expect(await screen.findByText("drives board")).toBeInTheDocument();
+      expect(await screen.findByText("dashboard page")).toBeInTheDocument();
     });
 
     it("lets the PIC through too - only the other tab is restricted", async () => {
@@ -65,7 +65,7 @@ describe("Login", () => {
       renderLogin();
       await signIn();
 
-      expect(await screen.findByText("drives board")).toBeInTheDocument();
+      expect(await screen.findByText("dashboard page")).toBeInTheDocument();
     });
   });
 
@@ -75,7 +75,7 @@ describe("Login", () => {
       renderLogin();
       await signIn("Administration");
 
-      expect(await screen.findByText("drives board")).toBeInTheDocument();
+      expect(await screen.findByText("dashboard page")).toBeInTheDocument();
     });
 
     it("turns a student away even though the password was right", async () => {
@@ -84,7 +84,7 @@ describe("Login", () => {
       await signIn("Administration");
 
       expect(await screen.findByRole("alert")).toHaveTextContent(/not an administration account/i);
-      expect(screen.queryByText("drives board")).not.toBeInTheDocument();
+      expect(screen.queryByText("dashboard page")).not.toBeInTheDocument();
     });
 
     it("turns a coordinator away as well - this is the PIC's door, not the cell's", async () => {

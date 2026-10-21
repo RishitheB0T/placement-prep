@@ -1,0 +1,5 @@
+# Kept out of the image build: dependencies are installed fresh inside it (npm ci), and
+# the build output is produced there too.
+node_modules/
+dist/
+*.log
