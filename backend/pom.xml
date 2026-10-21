@@ -87,6 +87,27 @@
 			<artifactId>spring-ai-starter-model-anthropic</artifactId>
 		</dependency>
 
+		<!--
+			The three pieces of the job-description search (RAG). Anthropic has no embedding
+			model, so embeddings come from a small model run locally inside the JVM by ONNX
+			Runtime: no API key and no cost, so semantic search works on any machine. The
+			vectors are stored in PostgreSQL's pgvector extension, which V1 already enables,
+			and the PDF reader (Apache PDFBox underneath) turns an uploaded job description
+			into text before it is split and embedded.
+		-->
+		<dependency>
+			<groupId>org.springframework.ai</groupId>
+			<artifactId>spring-ai-starter-model-transformers</artifactId>
+		</dependency>
+		<dependency>
+			<groupId>org.springframework.ai</groupId>
+			<artifactId>spring-ai-starter-vector-store-pgvector</artifactId>
+		</dependency>
+		<dependency>
+			<groupId>org.springframework.ai</groupId>
+			<artifactId>spring-ai-pdf-document-reader</artifactId>
+		</dependency>
+
 		<!-- Creates and verifies JWTs. Spring Security has no built-in library for this. -->
 		<dependency>
 			<groupId>io.jsonwebtoken</groupId>

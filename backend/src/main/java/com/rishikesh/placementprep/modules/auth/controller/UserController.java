@@ -1,5 +1,8 @@
 package com.rishikesh.placementprep.modules.auth.controller;
 
+import java.util.List;
+import java.util.Optional;
+
 import org.springframework.http.HttpStatus;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.core.userdetails.UserDetails;
@@ -9,12 +12,14 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.server.ResponseStatusException;
 
 import com.rishikesh.placementprep.modules.auth.dto.UpdateProfileRequest;
 import com.rishikesh.placementprep.modules.auth.dto.UpdateStaffProfileRequest;
 import com.rishikesh.placementprep.modules.auth.dto.UserProfileDTO;
+import com.rishikesh.placementprep.modules.auth.model.Role;
 import com.rishikesh.placementprep.modules.auth.service.UserService;
 
 import jakarta.validation.Valid;
@@ -36,6 +41,16 @@ public class UserController {
 
     public UserController(UserService userService) {
         this.userService = userService;
+    }
+
+    /**
+     * Every account, optionally only one role - the admin's user list, from which a student
+     * can be promoted to recruiter. Restricted to the person in charge by SecurityConfig.
+     * An unknown role in ?role= is a 400, from Spring's own conversion to the enum.
+     */
+    @GetMapping
+    public List<UserProfileDTO> all(@RequestParam Optional<Role> role) {
+        return userService.findAll(role);
     }
 
     /**

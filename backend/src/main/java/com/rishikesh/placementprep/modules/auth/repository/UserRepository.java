@@ -1,9 +1,11 @@
 package com.rishikesh.placementprep.modules.auth.repository;
 
+import java.util.List;
 import java.util.Optional;
 
 import org.springframework.data.jpa.repository.JpaRepository;
 
+import com.rishikesh.placementprep.modules.auth.model.Role;
 import com.rishikesh.placementprep.modules.auth.model.User;
 
 public interface UserRepository extends JpaRepository<User, Long> {
@@ -16,4 +18,7 @@ public interface UserRepository extends JpaRepository<User, Long> {
 
     /** Used to reject a duplicate registration before attempting the insert. */
     boolean existsByEmail(String email);
+
+    /** Every account with one role, alphabetically - the admin's user list, filtered. */
+    List<User> findByRoleOrderByEmailAsc(Role role);
 }

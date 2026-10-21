@@ -600,6 +600,56 @@ class AuthApiTest {
                 .andExpect(jsonPath("$.staffId").value(org.hamcrest.Matchers.nullValue()));
     }
 
+    // ---------------------------------------------------------------- User list
+
+    @Test
+    void theAdminCanListEveryAccountAlphabetically() throws Exception {
+        String admin = tokenFor("pic@tnp.nits.ac.in", Role.TNP_PIC);
+        createUser("zara@cse.nits.ac.in", Role.STUDENT);
+        createUser("arun@cse.nits.ac.in", Role.STUDENT);
+
+        mockMvc.perform(get("/api/users").header(HttpHeaders.AUTHORIZATION, "Bearer " + admin))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(3))
+                .andExpect(jsonPath("$[0].email").value("arun@cse.nits.ac.in"))
+                // The list never carries a password hash, the same as /me.
+                .andExpect(jsonPath("$[0].passwordHash").doesNotExist());
+    }
+
+    @Test
+    void theAdminCanListOnlyOneRole() throws Exception {
+        String admin = tokenFor("pic@tnp.nits.ac.in", Role.TNP_PIC);
+        createUser("student@cse.nits.ac.in", Role.STUDENT);
+        createUser("coordinator@tnp.nits.ac.in", Role.TNP_COORDINATOR);
+
+        mockMvc.perform(get("/api/users").param("role", "STUDENT")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + admin))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(1))
+                .andExpect(jsonPath("$[0].role").value("STUDENT"));
+    }
+
+    @Test
+    void anUnknownRoleFilterIs400() throws Exception {
+        String admin = tokenFor("pic@tnp.nits.ac.in", Role.TNP_PIC);
+
+        mockMvc.perform(get("/api/users").param("role", "SUPERUSER")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + admin))
+                .andExpect(status().isBadRequest());
+    }
+
+    /** A recruiter manages drives, not people - the account list is the admin's alone. */
+    @Test
+    void aRecruiterAndAStudentCannotListAccounts() throws Exception {
+        String coordinator = tokenFor("coordinator@tnp.nits.ac.in", Role.TNP_COORDINATOR);
+        String student = tokenFor("student@cse.nits.ac.in", Role.STUDENT);
+
+        mockMvc.perform(get("/api/users").header(HttpHeaders.AUTHORIZATION, "Bearer " + coordinator))
+                .andExpect(status().isForbidden());
+        mockMvc.perform(get("/api/users").header(HttpHeaders.AUTHORIZATION, "Bearer " + student))
+                .andExpect(status().isForbidden());
+    }
+
     // ----------------------------------------------------------------- Helpers
 
     private String credentials(String email, String password) {

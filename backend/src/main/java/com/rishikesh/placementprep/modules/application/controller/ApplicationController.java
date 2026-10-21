@@ -19,6 +19,7 @@ import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.server.ResponseStatusException;
 
 import com.rishikesh.placementprep.modules.application.dto.ApplicationDTO;
+import com.rishikesh.placementprep.modules.application.dto.ApplicationStatsDTO;
 import com.rishikesh.placementprep.modules.application.dto.ApplyRequest;
 import com.rishikesh.placementprep.modules.application.dto.UpdateStatusRequest;
 import com.rishikesh.placementprep.modules.application.service.ApplicationService;
@@ -60,6 +61,12 @@ public class ApplicationController {
     @GetMapping("/me")
     public List<ApplicationDTO> mine(@AuthenticationPrincipal UserDetails principal) {
         return applicationService.findMine(callerId(principal));
+    }
+
+    /** Counts across every drive, for the dashboards. Restricted to staff by SecurityConfig. */
+    @GetMapping("/stats")
+    public ApplicationStatsDTO stats() {
+        return applicationService.stats();
     }
 
     /**

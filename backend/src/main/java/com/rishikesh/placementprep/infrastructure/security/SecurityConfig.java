@@ -84,6 +84,9 @@ public class SecurityConfig {
                     // whole applicant list for a drive they are competing in.
                     .requestMatchers(HttpMethod.GET, "/api/applications/drive/*")
                             .hasAnyRole("TNP_PIC", "TNP_COORDINATOR")
+                    // Counts across every drive: the cell's dashboard, not a student's.
+                    .requestMatchers(HttpMethod.GET, "/api/applications/stats")
+                            .hasAnyRole("TNP_PIC", "TNP_COORDINATOR")
                     .requestMatchers(HttpMethod.PATCH, "/api/applications/*/status")
                             .hasAnyRole("TNP_PIC", "TNP_COORDINATOR")
 
@@ -93,6 +96,10 @@ public class SecurityConfig {
                     // The * matches exactly one path segment, so it cannot span an id.
                     .requestMatchers(HttpMethod.POST, "/api/users/*/promote").hasRole("TNP_PIC")
 
+                    // The full list of accounts, for choosing whom to promote. Exactly
+                    // "/api/users" - so /api/users/me stays open to every account.
+                    .requestMatchers(HttpMethod.GET, "/api/users").hasRole("TNP_PIC")
+
                     // Designation, department, staff id and the rest belong to the person
                     // in charge specifically, not the cell in general - a coordinator gets
                     // a 403 here exactly like a student would. Declared before the plain
@@ -100,6 +107,17 @@ public class SecurityConfig {
                     // two paths are distinct strings, but it sits next to the other
                     // PIC-only rule on principle.
                     .requestMatchers(HttpMethod.PUT, "/api/users/me/staff-profile").hasRole("TNP_PIC")
+
+                    // Resume feedback is a student's tool, and a coordinator is a student.
+                    // The person in charge is faculty with no resume to review, so they get
+                    // a 403 here. ResumeController keys every path to the caller's own id,
+                    // so one rule covers uploading, reading, downloading and retrying.
+                    .requestMatchers("/api/resumes", "/api/resumes/**")
+                            .hasAnyRole("STUDENT", "TNP_COORDINATOR")
+
+                    // The assistant's tools all act as a student - eligible drives, my
+                    // applications, apply - so it follows the same rule as resumes.
+                    .requestMatchers("/api/agent/**").hasAnyRole("STUDENT", "TNP_COORDINATOR")
 
                     // Default deny. Anything added later is locked until a rule is written
                     // for it, which fails safe rather than silently exposing a new endpoint.

@@ -21,6 +21,7 @@ import com.rishikesh.placementprep.modules.auth.service.UserService;
 import com.rishikesh.placementprep.modules.drive.dto.DriveDTO;
 import com.rishikesh.placementprep.modules.drive.dto.DriveRequest;
 import com.rishikesh.placementprep.modules.drive.service.DriveService;
+import com.rishikesh.placementprep.modules.knowledgebase.service.JobDescriptionService;
 
 import jakarta.validation.Valid;
 
@@ -30,10 +31,13 @@ public class DriveController {
 
     private final DriveService driveService;
     private final UserService userService;
+    private final JobDescriptionService jobDescriptionService;
 
-    public DriveController(DriveService driveService, UserService userService) {
+    public DriveController(DriveService driveService, UserService userService,
+                           JobDescriptionService jobDescriptionService) {
         this.driveService = driveService;
         this.userService = userService;
+        this.jobDescriptionService = jobDescriptionService;
     }
 
     /** Admin posts a new placement drive. */
@@ -105,6 +109,10 @@ public class DriveController {
         if (!driveService.deleteDrive(id)) {
             throw notFound(id);
         }
+        // Its job-description passages live in the vector store, which has no foreign key
+        // back to drives, so they are removed here - otherwise searches would keep
+        // returning a drive that no longer exists.
+        jobDescriptionService.forgetDrive(id);
     }
 
     /**

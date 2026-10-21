@@ -44,11 +44,64 @@ spring:
     enabled: true
     locations: classpath:db/migration
 
+  servlet:
+    multipart:
+      # A resume is a page or two of PDF. 5 MB is generous for that, and small enough
+      # that nobody can fill the disk by uploading something enormous.
+      max-file-size: 5MB
+      # The file plus the driveId field that travels with it in the same form.
+      max-request-size: 6MB
+
   ai:
     anthropic:
       # Unset by default, same convention as jwt.secret below: nothing real is
-      # hard-coded, and the agent module has nothing to call without this set.
+      # hard-coded. Without it, resume feedback still saves the upload but finishes the
+      # review as FAILED with a message saying AI feedback is not switched on.
       api-key: ${ANTHROPIC_API_KEY:}
+      chat:
+        # Overridable without a rebuild, e.g. ANTHROPIC_MODEL=claude-sonnet-5-5.
+        model: ${ANTHROPIC_MODEL:claude-opus-5-5}
+
+    # The local embedding model behind job-description search. Downloaded once (about
+    # 90 MB) on the first start and reused after that. Both URLs name one fixed revision
+    # rather than a branch, so the model - and therefore every stored vector - cannot
+    # change underneath the database between one start and the next.
+    embedding:
+      transformer:
+        onnx:
+          model-uri: https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2/resolve/1110a243fdf4706b3f48f1d95db1a4f5529b4d41/onnx/model.onnx
+        tokenizer:
+          uri: https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2/resolve/1110a243fdf4706b3f48f1d95db1a4f5529b4d41/tokenizer.json
+        cache:
+          # A folder of its own rather than the OS temp directory, which disk clean-up
+          # tools empty - that would mean another 90 MB download on the next start.
+          directory: ${EMBEDDING_CACHE_DIR:${user.home}/.placementprep/models}
+
+    # A ceiling on how many tools the assistant may call while answering one message,
+    # so a confused model cannot loop - and keep paying - indefinitely.
+    tools:
+      limits:
+        max-total-tool-calls: 8
+
+    vectorstore:
+      pgvector:
+        # Flyway owns the schema (V12 creates this table), same as every other table.
+        initialize-schema: false
+        table-name: job_description_chunks
+        # all-MiniLM-L6-v2 turns any text into 384 numbers.
+        dimensions: 384
+        distance-type: cosine-distance
+        index-type: hnsw
+
+# Where uploaded resumes are kept, and how often the background review checks for new
+# ones. The directory is relative to wherever the backend is started from - backend/
+# when it is run with mvnw - and is listed in .gitignore.
+resume:
+  storage:
+    directory: ${RESUME_STORAGE_DIR:uploads/resumes}
+  review:
+    # ISO-8601 duration: PT5S is five seconds.
+    poll-delay: ${RESUME_REVIEW_POLL_DELAY:PT5S}
 
 management:
   endpoints:

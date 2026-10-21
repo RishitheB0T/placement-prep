@@ -1,0 +1,8 @@
+# Kept out of the image build: compiled output is rebuilt inside the image, and the
+# rest is local state or editor files that have no business in it.
+target/
+uploads/
+.idea/
+.vscode/
+*.iml
+*.log

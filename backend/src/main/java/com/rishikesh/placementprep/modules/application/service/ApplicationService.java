@@ -1,13 +1,17 @@
 package com.rishikesh.placementprep.modules.application.service;
 
 import java.time.Instant;
+import java.util.EnumMap;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import com.rishikesh.placementprep.modules.application.dto.ApplicationDTO;
+import com.rishikesh.placementprep.modules.application.dto.ApplicationStatsDTO;
 import com.rishikesh.placementprep.modules.application.dto.UpdateStatusRequest;
 import com.rishikesh.placementprep.modules.application.model.Application;
 import com.rishikesh.placementprep.modules.application.model.ApplicationStatus;
@@ -73,6 +77,27 @@ public class ApplicationService {
     public List<ApplicationDTO> findForDrive(Long driveId) {
         return applicationRepository.findByDriveIdOrderByAppliedAtDesc(driveId)
                 .stream().map(this::toDto).toList();
+    }
+
+    /** Counts across every drive, for the recruiter's and admin's dashboards. */
+    @Transactional(readOnly = true)
+    public ApplicationStatsDTO stats() {
+        // 1. Start every status at zero, then fill in the ones that have applications
+        Map<ApplicationStatus, Long> byStatus = new EnumMap<>(ApplicationStatus.class);
+        for (ApplicationStatus status : ApplicationStatus.values()) {
+            byStatus.put(status, 0L);
+        }
+        for (Object[] row : applicationRepository.countByStatus()) {
+            byStatus.put((ApplicationStatus) row[0], (Long) row[1]);
+        }
+
+        // 2. Which drives have applications nobody has looked at yet
+        Map<Long, Long> awaitingReview = new LinkedHashMap<>();
+        for (Object[] row : applicationRepository.countPerDrive(ApplicationStatus.APPLIED)) {
+            awaitingReview.put((Long) row[0], (Long) row[1]);
+        }
+
+        return new ApplicationStatsDTO(byStatus, awaitingReview);
     }
 
     // ----------------------------------------------------------------- Update

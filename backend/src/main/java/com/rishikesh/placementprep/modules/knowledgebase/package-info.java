@@ -1,2 +1,2 @@
-/** Question answering over placement notices using retrieval-augmented generation backed by pgvector. */
+/** Semantic search over job-description PDFs (the retrieval half of RAG), backed by pgvector. */
 package com.rishikesh.placementprep.modules.knowledgebase;

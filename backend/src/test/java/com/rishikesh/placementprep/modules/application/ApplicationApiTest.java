@@ -218,6 +218,28 @@ class ApplicationApiTest {
                 .andExpect(jsonPath("$[0].studentEmail").value(org.hamcrest.Matchers.nullValue()));
     }
 
+    // ------------------------------------------------------------------ Stats
+
+    @Test
+    void theCellSeesCountsByStatusAndWhatIsWaitingPerDrive() throws Exception {
+        seedApplication(studentId, driveId, ApplicationStatus.APPLIED);
+        seedApplication(secondStudentId, driveId, ApplicationStatus.SHORTLISTED);
+
+        mockMvc.perform(get("/api/applications/stats").header(HttpHeaders.AUTHORIZATION, bearer(picToken)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.byStatus.APPLIED").value(1))
+                .andExpect(jsonPath("$.byStatus.SHORTLISTED").value(1))
+                // Every status is present, zero included.
+                .andExpect(jsonPath("$.byStatus.SELECTED").value(0))
+                .andExpect(jsonPath("$.awaitingReviewByDrive['" + driveId + "']").value(1));
+    }
+
+    @Test
+    void aStudentCannotSeeTheCellsCounts() throws Exception {
+        mockMvc.perform(get("/api/applications/stats").header(HttpHeaders.AUTHORIZATION, bearer(studentToken)))
+                .andExpect(status().isForbidden());
+    }
+
     // ----------------------------------------------------------------- Status
 
     @Test

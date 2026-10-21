@@ -1,10 +1,12 @@
 package com.rishikesh.placementprep.modules.auth.service;
 
 import java.util.Collection;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.stream.Collectors;
 
+import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -48,6 +50,19 @@ public class UserService {
     @Transactional(readOnly = true)
     public Optional<UserProfileDTO> findById(Long id) {
         return userRepository.findById(id).map(this::toDto);
+    }
+
+    /**
+     * Every account, or only those with one role, alphabetically by email. For the admin's
+     * user list - the endpoint using it is restricted to the person in charge, since it
+     * reaches every account rather than the caller's own.
+     */
+    @Transactional(readOnly = true)
+    public List<UserProfileDTO> findAll(Optional<Role> role) {
+        List<User> users = role.isPresent()
+                ? userRepository.findByRoleOrderByEmailAsc(role.get())
+                : userRepository.findAll(Sort.by("email"));
+        return users.stream().map(this::toDto).toList();
     }
 
     /**
