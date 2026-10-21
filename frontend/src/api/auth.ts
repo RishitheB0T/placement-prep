@@ -55,7 +55,9 @@ export function currentRole(): Role | null {
     // base64url uses - and _ where base64 uses + and /.
     const payload = token.split(".")[1].replace(/-/g, "+").replace(/_/g, "/");
     const role = (JSON.parse(atob(payload)) as { role?: unknown }).role;
-    return role === "STUDENT" || role === "TNP_COORDINATOR" || role === "TNP_PIC" ? role : null;
+    return role === "STUDENT" || role === "TNP_COORDINATOR" || role === "RECRUITER" || role === "TNP_PIC"
+      ? role
+      : null;
   } catch {
     // Not a JWT at all - anyone can put any string in their own localStorage.
     return null;
@@ -68,11 +70,19 @@ export function fetchUsers(role?: Role): Promise<UserProfile[]> {
 }
 
 /**
- * Makes a student a recruiter (TNP_COORDINATOR). Admin only. Throws an ApiError with
- * status 409 when the account is not a student.
+ * Makes a student a coordinator. Admin only. Throws an ApiError with status 409 when the
+ * account is not a student.
  */
-export function promoteToRecruiter(id: number): Promise<UserProfile> {
+export function promoteToCoordinator(id: number): Promise<UserProfile> {
   return api.post<UserProfile>(`/api/users/${id}/promote`);
+}
+
+/**
+ * Adds a company recruiter's account with a first password. Admin only. Throws an
+ * ApiError with status 409 when the email is already registered.
+ */
+export function createRecruiter(email: string, password: string): Promise<UserProfile> {
+  return api.post<UserProfile>("/api/users/recruiters", { email, password });
 }
 
 /** The signed-in user and their academic profile. */

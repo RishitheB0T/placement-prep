@@ -638,15 +638,111 @@ class AuthApiTest {
                 .andExpect(status().isBadRequest());
     }
 
-    /** A recruiter manages drives, not people - the account list is the admin's alone. */
+    /** Coordinators and recruiters manage drives, not people - the account list is the admin's alone. */
     @Test
-    void aRecruiterAndAStudentCannotListAccounts() throws Exception {
+    void onlyTheAdminCanListAccounts() throws Exception {
         String coordinator = tokenFor("coordinator@tnp.nits.ac.in", Role.TNP_COORDINATOR);
+        String recruiter = tokenFor("hr@zoho.com", Role.RECRUITER);
         String student = tokenFor("student@cse.nits.ac.in", Role.STUDENT);
 
-        mockMvc.perform(get("/api/users").header(HttpHeaders.AUTHORIZATION, "Bearer " + coordinator))
+        for (String token : new String[] {coordinator, recruiter, student}) {
+            mockMvc.perform(get("/api/users").header(HttpHeaders.AUTHORIZATION, "Bearer " + token))
+                    .andExpect(status().isForbidden());
+        }
+    }
+
+    // --------------------------------------------------------------- Recruiters
+
+    @Test
+    void theAdminCanAddARecruiterWhoCanThenSignIn() throws Exception {
+        String admin = tokenFor("pic@tnp.nits.ac.in", Role.TNP_PIC);
+
+        mockMvc.perform(post("/api/users/recruiters")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + admin)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(credentials("HR@Zoho.com", "first-password")))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.email").value("hr@zoho.com"))
+                .andExpect(jsonPath("$.role").value("RECRUITER"));
+
+        // A company address, which registration would refuse - so this is the only way in.
+        mockMvc.perform(post("/api/auth/login")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(credentials("hr@zoho.com", "first-password")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.role").value("RECRUITER"));
+    }
+
+    @Test
+    void addingARecruiterWithATakenEmailIs409() throws Exception {
+        String admin = tokenFor("pic@tnp.nits.ac.in", Role.TNP_PIC);
+        createUser("hr@zoho.com", Role.RECRUITER);
+
+        mockMvc.perform(post("/api/users/recruiters")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + admin)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(credentials("hr@zoho.com", "first-password")))
+                .andExpect(status().isConflict());
+    }
+
+    @Test
+    void onlyTheAdminCanAddARecruiter() throws Exception {
+        String coordinator = tokenFor("coordinator@tnp.nits.ac.in", Role.TNP_COORDINATOR);
+        String recruiter = tokenFor("hr@zoho.com", Role.RECRUITER);
+        String student = tokenFor("student@cse.nits.ac.in", Role.STUDENT);
+
+        for (String token : new String[] {coordinator, recruiter, student}) {
+            mockMvc.perform(post("/api/users/recruiters")
+                            .header(HttpHeaders.AUTHORIZATION, "Bearer " + token)
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(credentials("new-hr@zoho.com", "first-password")))
+                    .andExpect(status().isForbidden());
+        }
+        assertThat(userRepository.findByEmail("new-hr@zoho.com")).isEmpty();
+    }
+
+    @Test
+    void aRecruiterCanPostADrive() throws Exception {
+        String recruiter = tokenFor("hr@zoho.com", Role.RECRUITER);
+
+        mockMvc.perform(post("/api/drives")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + recruiter)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(driveJson()))
+                .andExpect(status().isCreated());
+    }
+
+    /** A recruiter is not a student: none of the student-only actions are open to them. */
+    @Test
+    void aRecruiterCannotDoWhatOnlyStudentsDo() throws Exception {
+        String recruiter = tokenFor("hr@zoho.com", Role.RECRUITER);
+        String bearer = "Bearer " + recruiter;
+
+        mockMvc.perform(post("/api/applications").header(HttpHeaders.AUTHORIZATION, bearer)
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"driveId\":1}"))
                 .andExpect(status().isForbidden());
-        mockMvc.perform(get("/api/users").header(HttpHeaders.AUTHORIZATION, "Bearer " + student))
+        mockMvc.perform(get("/api/applications/me").header(HttpHeaders.AUTHORIZATION, bearer))
+                .andExpect(status().isForbidden());
+        mockMvc.perform(put("/api/users/me").header(HttpHeaders.AUTHORIZATION, bearer)
+                        .contentType(MediaType.APPLICATION_JSON).content(profileJson("8.0", "CSE", "90", "90", 0)))
+                .andExpect(status().isForbidden());
+        mockMvc.perform(get("/api/resumes/me").header(HttpHeaders.AUTHORIZATION, bearer))
+                .andExpect(status().isForbidden());
+        mockMvc.perform(post("/api/agent/chat").header(HttpHeaders.AUTHORIZATION, bearer)
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"message\":\"hi\"}"))
+                .andExpect(status().isForbidden());
+        // Promoting is the admin's alone.
+        mockMvc.perform(post("/api/users/1/promote").header(HttpHeaders.AUTHORIZATION, bearer))
+                .andExpect(status().isForbidden());
+    }
+
+    /** The admin is faculty, not a student, so applying is closed to them too. */
+    @Test
+    void theAdminCannotApplyToADrive() throws Exception {
+        String admin = tokenFor("pic@tnp.nits.ac.in", Role.TNP_PIC);
+
+        mockMvc.perform(post("/api/applications").header(HttpHeaders.AUTHORIZATION, "Bearer " + admin)
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"driveId\":1}"))
                 .andExpect(status().isForbidden());
     }
 

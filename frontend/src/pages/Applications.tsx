@@ -8,6 +8,7 @@ import {
   withdrawApplication,
 } from "../api/applications";
 import { fetchMyProfile } from "../api/auth";
+import { canManageDrives, isStudentRole } from "../api/roles";
 import { ApiError } from "../api/client";
 import { fetchAllDrives } from "../api/drives";
 import type { Application, ApplicationStatus, Drive, UserProfile } from "../api/types";
@@ -46,8 +47,8 @@ export default function Applications() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  const canManage = profile?.role === "TNP_PIC" || profile?.role === "TNP_COORDINATOR";
-  const isStudent = profile !== null && profile.role !== "TNP_PIC";
+  const canManage = canManageDrives(profile?.role);
+  const isStudent = isStudentRole(profile?.role);
   /** Only a coordinator is both, so only a coordinator needs the switch. */
   const showTabs = canManage && isStudent;
 
@@ -60,16 +61,16 @@ export default function Applications() {
       setDrives(allDrives);
 
       // Arriving from a dashboard's "Review applicants" button, as ?driveId=12: a
-      // recruiter or admin opens straight onto that drive's applicants.
-      if (requestedDrive !== null && me.role !== "STUDENT") {
+      // coordinator, recruiter or admin opens straight onto that drive's applicants.
+      if (requestedDrive !== null && canManageDrives(me.role)) {
         setView("applicants");
         setSelectedDrive(requestedDrive);
         setApplications(await fetchApplicationsForDrive(requestedDrive));
         return;
       }
 
-      const student = me.role !== "TNP_PIC";
-      // The PIC has no applications of their own, so they open straight into review.
+      const student = isStudentRole(me.role);
+      // A recruiter or the PIC has no applications of their own, so they open straight into review.
       setView(student ? "mine" : "applicants");
       if (student) {
         setApplications(await fetchMyApplications());

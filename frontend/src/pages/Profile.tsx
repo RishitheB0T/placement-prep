@@ -2,19 +2,26 @@ import { useEffect, useState, type FormEvent } from "react";
 import { useNavigate } from "react-router-dom";
 
 import { fetchMyProfile, updateMyProfile, updateMyStaffProfile } from "../api/auth";
+import { isStudentRole } from "../api/roles";
 import { ApiError } from "../api/client";
-import type { UserProfile } from "../api/types";
+import type { Role, UserProfile } from "../api/types";
 import AppHeader from "../components/AppHeader";
 import { Icon, PageHero, Spinner } from "../components/ui";
+
+const ROLE_NAME: Record<Role, string> = {
+  STUDENT: "Student",
+  TNP_COORDINATOR: "Coordinator",
+  RECRUITER: "Recruiter",
+  TNP_PIC: "Admin",
+};
 
 /**
  * Loads the signed-in account, then hands off to whichever form applies.
  *
- * Only TNP_PIC gets a different form here - a coordinator sees the exact same academic
- * form a student does, unchanged from before this split existed. That is not an
- * oversight: nobody asked for a coordinator-specific profile, and a coordinator's account
- * has no staff fields to edit anyway - the database refuses to store them on anything
- * but a PIC.
+ * A coordinator sees the exact same academic form a student does - a coordinator is a
+ * student, and has no staff fields to edit anyway; the database refuses to store them on
+ * anything but a PIC. The PIC gets the staff form, and a recruiter, who has neither marks
+ * nor staff details, gets a short note instead of a form.
  */
 export default function Profile() {
   const navigate = useNavigate();
@@ -64,12 +71,14 @@ export default function Profile() {
         ) : (
           <>
             <PageHero
-              eyebrow={profile.role === "TNP_PIC" ? "Staff details" : "Academic details"}
+              eyebrow={profile.role === "TNP_PIC" ? "Staff details" : profile.role === "RECRUITER" ? "Recruiter account" : "Academic details"}
               title={profile.role === "TNP_PIC" ? "Administration profile" : "Your profile"}
               subtitle={
                 profile.role === "TNP_PIC"
                   ? "How students and coordinators see the person in charge of the cell."
-                  : "These marks decide which drives you are eligible for - keep them accurate."
+                  : profile.role === "RECRUITER"
+                    ? "Your account was added by the placement cell to post drives and review applicants."
+                    : "These marks decide which drives you are eligible for - keep them accurate."
               }
             />
 
@@ -78,6 +87,16 @@ export default function Profile() {
               <div className="lg:col-span-2">
                 {profile.role === "TNP_PIC" ? (
                   <StaffProfileForm profile={profile} />
+                ) : profile.role === "RECRUITER" ? (
+                  // Nothing to edit: a recruiter has no marks, and the backend refuses the
+                  // academic form for them with a 403.
+                  <section className="card animate-fade-up p-6 text-sm text-slate-600">
+                    <h2 className="text-lg font-bold text-slate-900">Nothing to fill in</h2>
+                    <p className="mt-2">
+                      Recruiter accounts have no academic details. Post a drive for your company, then review and
+                      shortlist the students who apply. To change your email or password, contact the placement cell.
+                    </p>
+                  </section>
                 ) : (
                   <StudentProfileForm profile={profile} />
                 )}
@@ -108,14 +127,10 @@ function IdentityCard({ profile }: { profile: UserProfile }) {
         </span>
         <p className="mt-3 truncate text-sm font-semibold text-slate-900">{profile.email}</p>
         <p className="text-xs text-slate-500">
-          {profile.role === "TNP_PIC"
-            ? "Admin"
-            : profile.role === "TNP_COORDINATOR"
-              ? "Recruiter"
-              : "Student"}
+          {ROLE_NAME[profile.role]}
         </p>
 
-        {profile.role !== "TNP_PIC" && (
+        {isStudentRole(profile.role) && (
           <div className="mt-5">
             <div className="flex items-center justify-between text-xs font-semibold">
               <span className="text-slate-600">Profile completeness</span>

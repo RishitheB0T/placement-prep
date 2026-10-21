@@ -1,8 +1,8 @@
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from "react";
 import { useNavigate } from "react-router-dom";
 
 import { fetchApplicationStats, fetchMyApplications } from "../api/applications";
-import { fetchMyProfile, fetchUsers, promoteToRecruiter } from "../api/auth";
+import { createRecruiter, fetchMyProfile, fetchUsers, promoteToCoordinator } from "../api/auth";
 import { ApiError } from "../api/client";
 import { fetchAllDrives, fetchEligibleDrives } from "../api/drives";
 import { fetchMyResumes } from "../api/resumes";
@@ -13,9 +13,9 @@ import { CompanyAvatar, EmptyState, Icon, PageHero, SkeletonCards, StatTile, typ
 /**
  * Each role's own dashboard, on one route.
  *
- * Which of the three views appears follows from the role in the signed-in profile - a
- * student sees their own placement journey, a recruiter sees what is waiting for review,
- * and the admin sees the whole cell and the people in it. Every number on each view comes
+ * Which view appears follows from the role in the signed-in profile - a student sees
+ * their own placement journey, a recruiter sees what is waiting for review, a coordinator
+ * sees both, and the admin sees the whole cell and the people in it. Every number on each view comes
  * from an endpoint that role is allowed to call; the backend would refuse the others.
  */
 export default function Dashboard() {
@@ -53,7 +53,8 @@ export default function Dashboard() {
         )}
         {!profile && !error && <SkeletonCards count={4} />}
         {profile?.role === "STUDENT" && <StudentDashboard profile={profile} />}
-        {profile?.role === "TNP_COORDINATOR" && <RecruiterDashboard profile={profile} />}
+        {profile?.role === "TNP_COORDINATOR" && <HiringDashboard profile={profile} alsoStudent />}
+        {profile?.role === "RECRUITER" && <HiringDashboard profile={profile} alsoStudent={false} />}
         {profile?.role === "TNP_PIC" && <AdminDashboard profile={profile} />}
       </main>
     </>
@@ -183,9 +184,14 @@ function StudentDashboard({ profile }: { profile: UserProfile }) {
   );
 }
 
-// ---------------------------------------------------------------- Recruiter
+// ------------------------------------------------- Recruiter and coordinator
 
-function RecruiterDashboard({ profile }: { profile: UserProfile }) {
+/**
+ * The hiring view, for a company recruiter and for a coordinator. A coordinator is also a
+ * student, so `alsoStudent` adds their own applications; a recruiter has none, and the
+ * backend would answer 403 if this asked for them.
+ */
+function HiringDashboard({ profile, alsoStudent }: { profile: UserProfile; alsoStudent: boolean }) {
   const navigate = useNavigate();
   const [drives, setDrives] = useState<Drive[]>([]);
   const [stats, setStats] = useState<ApplicationStats | null>(null);
@@ -193,21 +199,25 @@ function RecruiterDashboard({ profile }: { profile: UserProfile }) {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    Promise.all([fetchAllDrives(), fetchApplicationStats(), fetchMyApplications()])
+    Promise.all([
+      fetchAllDrives(),
+      fetchApplicationStats(),
+      alsoStudent ? fetchMyApplications() : Promise.resolve([] as Application[]),
+    ])
       .then(([allDrives, applicationStats, myApplications]) => {
         setDrives(allDrives);
         setStats(applicationStats);
         setMine(myApplications);
       })
       .catch((e) => setError(e instanceof ApiError ? e.message : "Could not load your dashboard"));
-  }, []);
+  }, [alsoStudent]);
 
   const myActive = mine.filter((a) => a.status !== "WITHDRAWN").length;
 
   return (
     <>
       <PageHero
-        eyebrow="Recruiter dashboard"
+        eyebrow={alsoStudent ? "Coordinator dashboard" : "Recruiter dashboard"}
         title="Recruiting overview"
         subtitle={`Signed in as ${profile.email}. Post drives, review who applied, and move applications along.`}
       >
@@ -231,24 +241,30 @@ function RecruiterDashboard({ profile }: { profile: UserProfile }) {
         stats && (
           <>
             <CellStats drives={drives} stats={stats} />
-            <div className="mt-8 grid gap-6 lg:grid-cols-3">
-              <div className="lg:col-span-2">
+            {alsoStudent ? (
+              <div className="mt-8 grid gap-6 lg:grid-cols-3">
+                <div className="lg:col-span-2">
+                  <NeedsReview drives={drives} stats={stats} />
+                </div>
+                <Panel title="Your own placement">
+                  <p className="text-sm text-slate-600">
+                    A coordinator is a student too. You have {myActive} active application{myActive === 1 ? "" : "s"}.
+                  </p>
+                  <div className="mt-4 flex flex-wrap gap-2">
+                    <button onClick={() => navigate("/applications")} className="btn btn-sm btn-secondary">
+                      My applications
+                    </button>
+                    <button onClick={() => navigate("/resumes")} className="btn btn-sm btn-secondary">
+                      Resume feedback
+                    </button>
+                  </div>
+                </Panel>
+              </div>
+            ) : (
+              <div className="mt-8">
                 <NeedsReview drives={drives} stats={stats} />
               </div>
-              <Panel title="Your own placement">
-                <p className="text-sm text-slate-600">
-                  A recruiter is a student too. You have {myActive} active application{myActive === 1 ? "" : "s"}.
-                </p>
-                <div className="mt-4 flex flex-wrap gap-2">
-                  <button onClick={() => navigate("/applications")} className="btn btn-sm btn-secondary">
-                    My applications
-                  </button>
-                  <button onClick={() => navigate("/resumes")} className="btn btn-sm btn-secondary">
-                    Resume feedback
-                  </button>
-                </div>
-              </Panel>
-            </div>
+            )}
           </>
         )
       )}
@@ -298,7 +314,11 @@ function AdminDashboard({ profile }: { profile: UserProfile }) {
             <CellStats drives={drives} stats={stats} />
             <div className="mt-8 grid items-start gap-6 lg:grid-cols-2">
               <NeedsReview drives={drives} stats={stats} />
-              <People users={users} onPromoted={(updated) => setUsers((all) => all.map((u) => (u.id === updated.id ? updated : u)))} />
+              <People
+                users={users}
+                onPromoted={(updated) => setUsers((all) => all.map((u) => (u.id === updated.id ? updated : u)))}
+                onAdded={(added) => setUsers((all) => [...all, added])}
+              />
             </div>
           </>
         )
@@ -307,15 +327,48 @@ function AdminDashboard({ profile }: { profile: UserProfile }) {
   );
 }
 
+type PeopleFilter = "STUDENT" | "TNP_COORDINATOR" | "RECRUITER";
+
+const PEOPLE_TABS: { role: PeopleFilter; label: string }[] = [
+  { role: "STUDENT", label: "Students" },
+  { role: "TNP_COORDINATOR", label: "Coordinators" },
+  { role: "RECRUITER", label: "Recruiters" },
+];
+
 /**
- * The admin's user management: find a student and make them a recruiter. Promotion is the
- * one thing only the admin may do, so it lives on the admin's own dashboard.
+ * The admin's user management: make a student a coordinator, or add a company's recruiter.
+ * Both are things only the admin may do, so they live on the admin's own dashboard.
  */
-function People({ users, onPromoted }: { users: UserProfile[]; onPromoted: (user: UserProfile) => void }) {
-  const [filter, setFilter] = useState<"STUDENT" | "TNP_COORDINATOR">("STUDENT");
+function People({
+  users,
+  onPromoted,
+  onAdded,
+}: {
+  users: UserProfile[];
+  onPromoted: (user: UserProfile) => void;
+  onAdded: (user: UserProfile) => void;
+}) {
+  const [filter, setFilter] = useState<PeopleFilter>("STUDENT");
   const [search, setSearch] = useState("");
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [recruiterEmail, setRecruiterEmail] = useState("");
+  const [recruiterPassword, setRecruiterPassword] = useState("");
+
+  async function addRecruiter(event: FormEvent) {
+    event.preventDefault();
+    setMessage(null);
+    setError(null);
+    try {
+      const added = await createRecruiter(recruiterEmail, recruiterPassword);
+      onAdded(added);
+      setRecruiterEmail("");
+      setRecruiterPassword("");
+      setMessage(`${added.email} can now sign in on the Recruiter tab with the password you set.`);
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : "Could not add this recruiter");
+    }
+  }
 
   const shown = useMemo(
     () =>
@@ -326,15 +379,15 @@ function People({ users, onPromoted }: { users: UserProfile[]; onPromoted: (user
   );
 
   async function promote(user: UserProfile) {
-    if (!window.confirm(`Make ${user.email} a recruiter? They will be able to post drives and decide applications.`)) {
+    if (!window.confirm(`Make ${user.email} a coordinator? They will be able to post drives and decide applications.`)) {
       return;
     }
     setMessage(null);
     setError(null);
     try {
-      const updated = await promoteToRecruiter(user.id);
+      const updated = await promoteToCoordinator(user.id);
       onPromoted(updated);
-      setMessage(`${updated.email} is now a recruiter. They will see the recruiter pages after their next sign-in.`);
+      setMessage(`${updated.email} is now a coordinator. They will see the coordinator pages after their next sign-in.`);
     } catch (e) {
       setError(e instanceof ApiError ? e.message : "Could not promote this account");
     }
@@ -344,7 +397,7 @@ function People({ users, onPromoted }: { users: UserProfile[]; onPromoted: (user
     <Panel title="People">
       <div className="flex flex-wrap items-center gap-2">
         <div className="inline-flex rounded-xl bg-slate-100/80 p-1 text-sm">
-          {(["STUDENT", "TNP_COORDINATOR"] as const).map((role) => (
+          {PEOPLE_TABS.map(({ role, label }) => (
             <button
               key={role}
               onClick={() => setFilter(role)}
@@ -353,7 +406,7 @@ function People({ users, onPromoted }: { users: UserProfile[]; onPromoted: (user
                 filter === role ? "bg-white text-violet-700 shadow-sm" : "text-slate-500 hover:text-slate-700",
               ].join(" ")}
             >
-              {role === "STUDENT" ? "Students" : "Recruiters"} ({users.filter((u) => u.role === role).length})
+              {label} ({users.filter((u) => u.role === role).length})
             </button>
           ))}
         </div>
@@ -368,6 +421,45 @@ function People({ users, onPromoted }: { users: UserProfile[]; onPromoted: (user
           className="input mt-0 min-w-0 flex-1"
         />
       </div>
+
+      {filter === "RECRUITER" && (
+        <form onSubmit={(e) => void addRecruiter(e)} className="mt-4 rounded-xl border border-emerald-100 bg-emerald-50/60 p-3">
+          <p className="text-sm font-semibold text-slate-800">Add a company recruiter</p>
+          <div className="mt-2 flex flex-wrap gap-2">
+            <label className="sr-only" htmlFor="recruiter-email">
+              Recruiter email
+            </label>
+            <input
+              id="recruiter-email"
+              type="email"
+              required
+              value={recruiterEmail}
+              onChange={(e) => setRecruiterEmail(e.target.value)}
+              placeholder="hr@company.com"
+              className="input mt-0 min-w-0 flex-1"
+            />
+            <label className="sr-only" htmlFor="recruiter-password">
+              First password
+            </label>
+            <input
+              id="recruiter-password"
+              type="password"
+              required
+              minLength={8}
+              maxLength={72}
+              value={recruiterPassword}
+              onChange={(e) => setRecruiterPassword(e.target.value)}
+              placeholder="First password"
+              autoComplete="new-password"
+              className="input mt-0 min-w-0 flex-1"
+            />
+            <button type="submit" className="btn btn-sm btn-primary">
+              <Icon name="plus" />
+              Add recruiter
+            </button>
+          </div>
+        </form>
+      )}
 
       {message && <p className="alert-success animate-pop mt-4">{message}</p>}
       {error && (
@@ -391,13 +483,13 @@ function People({ users, onPromoted }: { users: UserProfile[]; onPromoted: (user
               <div className="min-w-0 flex-1">
                 <p className="truncate text-sm font-semibold text-slate-800">{user.email}</p>
                 <p className="text-xs text-slate-500">
-                  {user.branch ?? "No branch yet"}
+                  {user.role === "RECRUITER" ? "Company recruiter" : (user.branch ?? "No branch yet")}
                   {user.cgpa !== null && ` · CGPA ${user.cgpa}`}
                 </p>
               </div>
               {user.role === "STUDENT" && (
                 <button onClick={() => void promote(user)} className="btn btn-sm btn-secondary">
-                  Make recruiter
+                  Make coordinator
                 </button>
               )}
             </li>

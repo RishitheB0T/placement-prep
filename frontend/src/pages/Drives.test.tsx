@@ -6,7 +6,7 @@ import * as applicationsApi from "../api/applications";
 import * as authApi from "../api/auth";
 import * as drivesApi from "../api/drives";
 import { renderPage } from "../test/render";
-import { application, coordinator, drive, personInCharge, student } from "../test/fixtures";
+import { application, coordinator, drive, personInCharge, recruiter, student } from "../test/fixtures";
 import Drives from "./Drives";
 
 vi.mock("../api/auth");
@@ -139,6 +139,19 @@ describe("Drives", () => {
       expect(applicationsApi.fetchMyApplications).not.toHaveBeenCalled();
       expect(drivesApi.fetchEligibleDrives).not.toHaveBeenCalled();
       expect(drivesApi.fetchAllDrives).toHaveBeenCalled();
+    });
+  });
+
+  describe("a company recruiter", () => {
+    it("manages the board like the cell, but is not a student", async () => {
+      vi.mocked(authApi.fetchMyProfile).mockResolvedValue(recruiter());
+      renderPage(<Drives />);
+
+      expect(await screen.findByRole("button", { name: "Delete" })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Post a drive" })).toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: "Apply" })).not.toBeInTheDocument();
+      expect(applicationsApi.fetchMyApplications).not.toHaveBeenCalled();
+      expect(drivesApi.fetchEligibleDrives).not.toHaveBeenCalled();
     });
   });
 });

@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 
 import { askAssistant } from "../api/agent";
 import { fetchMyProfile } from "../api/auth";
+import { isStudentRole } from "../api/roles";
 import { ApiError } from "../api/client";
 import { searchJobDescriptions } from "../api/jobDescriptions";
 import type { ChatTurn, JobDescriptionMatch, UserProfile } from "../api/types";
@@ -46,8 +47,8 @@ export default function Assistant() {
     fetchMyProfile()
       .then((me) => {
         if (cancelled) return;
-        // The assistant's tools all act as a student; the backend refuses the admin too.
-        if (me.role === "TNP_PIC") {
+        // The assistant's tools all act as a student; the backend refuses everyone else too.
+        if (!isStudentRole(me.role)) {
           navigate("/drives", { replace: true });
           return;
         }

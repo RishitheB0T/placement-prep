@@ -9,7 +9,7 @@
  * generating them from an OpenAPI document.
  */
 
-export type Role = "STUDENT" | "TNP_COORDINATOR" | "TNP_PIC";
+export type Role = "STUDENT" | "TNP_COORDINATOR" | "RECRUITER" | "TNP_PIC";
 
 /** Returned by POST /api/auth/register and POST /api/auth/login. */
 export interface AuthResponse {

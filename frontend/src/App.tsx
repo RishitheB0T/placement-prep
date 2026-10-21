@@ -1,6 +1,6 @@
 import { Navigate, Route, Routes } from "react-router-dom";
 
-import type { Role } from "./api/types";
+import { MANAGERS, STUDENTS } from "./api/roles";
 import ProtectedRoute from "./components/ProtectedRoute";
 import Applications from "./pages/Applications";
 import Assistant from "./pages/Assistant";
@@ -11,12 +11,6 @@ import PostDrive from "./pages/PostDrive";
 import Profile from "./pages/Profile";
 import Register from "./pages/Register";
 import Resumes from "./pages/Resumes";
-
-/** Roles that manage the board: the recruiter and the admin. */
-const MANAGERS: Role[] = ["TNP_COORDINATOR", "TNP_PIC"];
-
-/** Roles that are students: the student, and the recruiter who is also one. */
-const STUDENTS: Role[] = ["STUDENT", "TNP_COORDINATOR"];
 
 export default function App() {
   return (

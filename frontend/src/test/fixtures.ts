@@ -40,6 +40,22 @@ export function coordinator(overrides: Partial<UserProfile> = {}): UserProfile {
   };
 }
 
+/** A company's recruiter: a company address, and no academic or staff fields. */
+export function recruiter(overrides: Partial<UserProfile> = {}): UserProfile {
+  return {
+    ...BASE_PROFILE,
+    id: 4,
+    email: "hr@zoho.com",
+    role: "RECRUITER",
+    cgpa: null,
+    branch: null,
+    tenthPercentage: null,
+    twelfthPercentage: null,
+    complete: false,
+    ...overrides,
+  };
+}
+
 /** The PIC is faculty: no academic fields at all, staff fields instead. */
 export function personInCharge(overrides: Partial<UserProfile> = {}): UserProfile {
   return {

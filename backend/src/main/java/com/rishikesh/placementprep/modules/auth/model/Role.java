@@ -16,10 +16,20 @@ public enum Role {
     STUDENT,
 
     /**
-     * A training-and-placement cell coordinator. Posts and manages drives, but cannot
+     * A training-and-placement cell coordinator: a student who also helps run the cell.
+     * Everything a student can do, plus posting drives and reviewing applicants. Cannot
      * change anybody's role - staffing the cell is the person-in-charge's decision.
      */
     TNP_COORDINATOR,
+
+    /**
+     * A company's hiring contact. Posts and manages drives and reviews applicants, but is
+     * not a student: no academic profile, no applying, no resume feedback, no assistant.
+     *
+     * <p>Created only by the person in charge, never through registration - registration
+     * accepts college addresses only, and a recruiter signs in with a company address.
+     */
+    RECRUITER,
 
     /**
      * The training-and-placement cell's person in charge. Everything a coordinator can

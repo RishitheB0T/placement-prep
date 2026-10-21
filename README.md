@@ -10,10 +10,10 @@ help them prepare.
 | --- | --- |
 | Drives board - TNP CRUD and the student eligibility filter | **Built** |
 | Applications - a student applying to a drive, and the cell tracking status | **Built** |
-| Accounts, login and three-tier roles | **Built** - Spring Security + JWT |
-| Separate Administration sign-in and staff profile for the person in charge | **Built** |
+| Accounts, login and roles - student, coordinator, recruiter, admin | **Built** - Spring Security + JWT |
+| Separate Recruiter and Administration sign-in tabs, and a staff profile for the person in charge | **Built** |
 | Web UI - register, sign in, profile, drives board, applications, posting a drive | **Built** |
-| Role dashboards - a student, recruiter and admin view, with the admin promoting students to recruiter | **Built** |
+| Role dashboards - student, coordinator, recruiter and admin views, with the admin adding recruiters and promoting students to coordinator | **Built** |
 | Running in Docker - backend and frontend images, one `docker compose` command | **Built** |
 | Resume upload with AI feedback | **Built** - PDF reviewed by Claude via Spring AI in a background job; needs `ANTHROPIC_API_KEY` |
 | AI assistant | **Built** - Spring AI `@Tool` calling: the model calls backend service methods (eligible drives, my applications, apply, job-description search) from plain-English messages; needs `ANTHROPIC_API_KEY` |
@@ -176,9 +176,9 @@ sequenceDiagram
     end
 ```
 
-Only the **Administration** tab is enforced, and only against `TNP_PIC`. The **Student**
-tab is the original, unrestricted form: it accepts any account, including a coordinator or
-a PIC, exactly as it did before the toggle existed. A coordinator was never given a door of
+The **Administration** tab is enforced against `TNP_PIC`, and the **Recruiter** tab the same
+way against `RECRUITER`. The **Student** tab is the original, unrestricted form: it accepts
+any account, including a coordinator or a PIC, exactly as it did before the toggle existed. A coordinator was never given a door of
 their own, so locking them out of the one they already used would have been a regression,
 not a feature.
 
@@ -189,22 +189,25 @@ to `anyRequest().authenticated()` — a default deny, so a new endpoint is locke
 rule is written for it.
 
 Roles are cumulative *up to the coordinator* — a coordinator is a student who also runs the
-board, so they keep every student endpoint. The person in charge breaks the chain: they are
-faculty rather than a student, so they hold the cell's tools and their own extras but none
-of the student tier.
+board, so they keep every student endpoint. The recruiter and the person in charge break
+the chain: neither is a student, so they hold the hiring tools (and, for the PIC, their own
+extras) but none of the student tier.
 
 ```mermaid
 flowchart TD
     T0["<b>🚫 NO TOKEN</b><br/>━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━<br/>POST /api/auth/register<br/>POST /api/auth/login<br/>GET /actuator/health<br/><br/><i>everything else → 401</i>"]
 
-    T1["<b>🎓 STUDENT</b> — any signed-in account<br/>━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━<br/>GET · PUT /api/users/me<br/>GET /api/drives<br/>GET /api/drives/{id}<br/>GET /api/drives/eligible<br/>POST /api/applications<br/>GET /api/applications/me<br/>POST /api/applications/{id}/withdraw"]
+    T1["<b>🎓 STUDENT</b><br/>━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━<br/>GET · PUT /api/users/me<br/>GET /api/drives<br/>GET /api/drives/{id}<br/>GET /api/drives/eligible<br/>POST /api/applications<br/>GET /api/applications/me<br/>POST /api/applications/{id}/withdraw<br/>/api/resumes/** · /api/agent/**"]
 
     T2["<b>📋 TNP_COORDINATOR</b> — the above, plus<br/>━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━<br/>POST /api/drives<br/>PUT /api/drives/{id}<br/>DELETE /api/drives/{id}<br/>GET /api/applications/drive/{driveId}<br/>PATCH /api/applications/{id}/status"]
 
-    T3["<b>⭐ TNP_PIC</b> — the cell's tools, plus<br/>━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━<br/>POST /api/users/{id}/promote<br/>PUT /api/users/me/staff-profile<br/>and the Administration sign-in tab<br/><br/><i>but NOT the student tier — faculty,<br/>so no CGPA and no applying</i>"]
+    TR["<b>💼 RECRUITER</b> — hiring tools only<br/>━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━<br/>the coordinator's drive and applicant tools<br/>and the Recruiter sign-in tab<br/><br/><i>but NOT the student tier — a company<br/>contact, so no profile and no applying</i>"]
 
-    T0 -->|"sign in"| T1
+    T3["<b>⭐ TNP_PIC</b> — the hiring tools, plus<br/>━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━<br/>POST /api/users/{id}/promote<br/>POST /api/users/recruiters<br/>GET /api/users<br/>PUT /api/users/me/staff-profile<br/>and the Administration sign-in tab<br/><br/><i>but NOT the student tier — faculty,<br/>so no CGPA and no applying</i>"]
+
+    T0 -->|"register"| T1
     T1 -->|"promoted by a PIC —<br/>keeps every student ability"| T2
+    T3 -->|"creates the account —<br/>company email"| TR
     T2 -->|"seeded in the database only —<br/>no API route grants this"| T3
 
     T1 -.->|"403 — a coordinator's<br/>endpoints are closed"| T2
@@ -213,11 +216,13 @@ flowchart TD
     classDef anon fill:#f1f5f9,stroke:#475569,stroke-width:3px,color:#0f172a
     classDef stu fill:#dbeafe,stroke:#1e40af,stroke-width:3px,color:#1e3a8a
     classDef coord fill:#fef3c7,stroke:#b45309,stroke-width:3px,color:#78350f
+    classDef rec fill:#d1fae5,stroke:#047857,stroke-width:3px,color:#064e3b
     classDef pic fill:#fee2e2,stroke:#b91c1c,stroke-width:3px,color:#7f1d1d
 
     class T0 anon
     class T1 stu
     class T2 coord
+    class TR rec
     class T3 pic
 ```
 
@@ -459,19 +464,21 @@ The role travels in the token purely as a convenience for the client. **The serv
 trusts it** and re-reads the real role from the database on every request, so a revoked
 privilege takes effect on the next call rather than whenever the token happens to expire.
 
-### The three roles
+### The four roles
 
 | Role | May do |
 | --- | --- |
 | `STUDENT` - shown as **Student** | read the board, see their own eligible drives, edit their own academic profile, apply to and withdraw from drives, resume feedback, the AI assistant |
-| `TNP_COORDINATOR` - shown as **Recruiter** | everything a student may, plus create, edit and delete drives, upload job-description PDFs, and review/decide applications |
-| `TNP_PIC` - shown as **Admin** | manages the board and applications like a recruiter, plus promotes students to recruiter, edits their own staff details, and uses the Administration sign-in. **Not a student** - holds no CGPA, cannot apply to drives |
+| `TNP_COORDINATOR` - shown as **Coordinator** | everything a student may, plus create, edit and delete drives, upload job-description PDFs, and review/decide applications |
+| `RECRUITER` - shown as **Recruiter** | a company's hiring contact: create, edit and delete drives, upload job-description PDFs, and review/decide applications. **Not a student** - no academic profile, cannot apply, no resume feedback or assistant. Signs in with a company email on the Recruiter tab |
+| `TNP_PIC` - shown as **Admin** | manages the board and applications like a recruiter, plus adds recruiters, promotes students to coordinator, lists every account, edits their own staff details, and uses the Administration sign-in. **Not a student** - holds no CGPA, cannot apply to drives |
 
 The code and the database keep the original names; the UI shows the plain words for what
 each account does. In the browser, `ProtectedRoute` also takes a list of roles per route,
-so each role gets its own set of pages - a student is sent back to the board from
-`/post-drive`, and the admin from `/resumes` and `/assistant`. That is a convenience; the
-backend's 403 is what actually enforces it.
+so each role gets its own set of pages - a student is sent back from `/post-drive`, and a
+recruiter or the admin from `/resumes` and `/assistant`. That is a convenience; the
+backend's 403 is what actually enforces it. The two role lists live in one place on each
+side: `MANAGERS` and `STUDENTS` in `SecurityConfig`, mirrored in `frontend/src/api/roles.ts`.
 
 **A coordinator is a student.** They are a final-year student who also helps run the cell,
 so they keep everything a student has - an academic profile, an eligibility list, the
@@ -480,10 +487,15 @@ top. The interface reflects that: a coordinator sees the "Eligible for me" tab a
 **Apply** button *and* a **Delete** button on the same drive card, and gets both a "My
 applications" and an "Applicants" tab.
 
-The person in charge is the exception. They are faculty, not a student, which is why the
-`CHECK` constraint gives them the staff columns and why the UI gives them no eligibility
-tab and no Apply button - `/api/drives/eligible` would answer `409` for an account with no
-CGPA anyway.
+The recruiter and the person in charge are the exceptions. A recruiter works for a company
+and the PIC is faculty; neither is a student, which is why the backend answers `403` when
+either tries to apply, and why the UI gives them no eligibility tab and no Apply button -
+`/api/drives/eligible` would answer `409` for an account with no CGPA anyway. Only the PIC
+gets the staff columns, through the `CHECK` constraint.
+
+Recruiters cannot register themselves: registration is for college addresses only. The PIC
+adds a recruiter with `POST /api/users/recruiters` (a company email and a first password),
+from the **Recruiters** tab of the People panel on the admin dashboard.
 
 So "is this account management?" and "is this account a student?" are two independent
 questions, and the frontend asks them separately rather than collapsing both into one
@@ -513,12 +525,14 @@ needed:
 | --- | --- |
 | `tnp@pic.nits.ac.in` | `9676596160` |
 
-The sign-in page has two tabs, **Student** and **Administration**. Either one accepts this
-account, but only the Administration tab is *enforced*, and only against `TNP_PIC`:
+The sign-in page has three tabs, **Student**, **Recruiter** and **Administration**. The
+Student and Administration tabs both accept this account; the other two are *enforced*,
+each against its one role:
 
-- **Administration tab** — if the credentials belong to a student or a coordinator, the
-  token that was just issued is discarded and the form says so. The password was correct;
-  the wrong door was used.
+- **Administration tab** — if the credentials belong to anyone but `TNP_PIC`, the token
+  that was just issued is discarded and the form says so. The password was correct; the
+  wrong door was used.
+- **Recruiter tab** — the same, against `RECRUITER`.
 - **Student tab** — the original, unrestricted form. It accepts any account, including a
   coordinator or the PIC. A coordinator was never given a door of their own, so locking
   them out of the one they already used would be a regression rather than a feature.
@@ -555,9 +569,11 @@ All paths require `Authorization: Bearer <token>` unless marked public.
 | `POST` | `/api/auth/register` | create a student account, returns a token | `201` / `409` |
 | `POST` | `/api/auth/login` | exchange credentials for a token | `200` / `401` |
 | `GET` | `/api/users/me` | the signed-in user and their profile | `200` |
-| `PUT` | `/api/users/me` | replace my academic details | `200` |
+| `PUT` | `/api/users/me` | replace my academic details - **students and coordinators** | `200` / `403` |
 | `PUT` | `/api/users/me/staff-profile` | replace my staff details - **PIC only** | `200` / `403` |
 | `POST` | `/api/users/{id}/promote` | make a student a coordinator - **PIC only** | `200` / `404` / `409` |
+| `POST` | `/api/users/recruiters` | add a company recruiter, `{email, password}` - **PIC only** | `201` / `409` |
+| `GET` | `/api/users?role=` | every account, optionally one role - **PIC only** | `200` / `400` |
 
 `/api/auth/register` and `/api/auth/login` are public, as is `/actuator/health`.
 
@@ -613,9 +629,9 @@ Base path `/api/drives`.
 | `GET` | `/api/drives` | all drives, newest first | any signed-in user | `200` |
 | `GET` | `/api/drives/eligible` | drives **I** qualify for | any signed-in user | `200` / `409` |
 | `GET` | `/api/drives/{id}` | one drive | any signed-in user | `200` / `404` |
-| `POST` | `/api/drives` | post a drive | PIC, coordinator | `201` |
-| `PUT` | `/api/drives/{id}` | replace a drive | PIC, coordinator | `200` / `404` |
-| `DELETE` | `/api/drives/{id}` | remove a drive | PIC, coordinator | `204` / `404` |
+| `POST` | `/api/drives` | post a drive | PIC, coordinator, recruiter | `201` |
+| `PUT` | `/api/drives/{id}` | replace a drive | PIC, coordinator, recruiter | `200` / `404` |
+| `DELETE` | `/api/drives/{id}` | remove a drive | PIC, coordinator, recruiter | `204` / `404` |
 
 `/api/drives/eligible` takes no parameters. It reads the marks from the signed-in user's
 own profile, so one student can never enumerate what another would qualify for. It answers
@@ -673,11 +689,11 @@ Base path `/api/applications`.
 
 | Method | Path | Purpose | Who | Success |
 | --- | --- | --- | --- | --- |
-| `POST` | `/api/applications` | apply to a drive | any signed-in user | `201` / `409` |
-| `GET` | `/api/applications/me` | my own applications | any signed-in user | `200` |
-| `GET` | `/api/applications/drive/{driveId}` | everyone who applied to a drive | PIC, coordinator | `200` |
-| `PATCH` | `/api/applications/{id}/status` | move an application along | PIC, coordinator | `200` / `404` |
-| `POST` | `/api/applications/{id}/withdraw` | pull out of a drive | any signed-in user | `200` / `404` |
+| `POST` | `/api/applications` | apply to a drive | student, coordinator | `201` / `409` |
+| `GET` | `/api/applications/me` | my own applications | student, coordinator | `200` |
+| `GET` | `/api/applications/drive/{driveId}` | everyone who applied to a drive | PIC, coordinator, recruiter | `200` |
+| `PATCH` | `/api/applications/{id}/status` | move an application along | PIC, coordinator, recruiter | `200` / `404` |
+| `POST` | `/api/applications/{id}/withdraw` | pull out of a drive | student, coordinator | `200` / `404` |
 
 `POST /api/applications` takes only `{"driveId": ...}` - the student comes from the
 signed-in account, never from the body, so nobody can apply on someone else's behalf.
@@ -776,6 +792,9 @@ Flyway stores a checksum of each file and refuses to start if one changes.
 | `V8__seed_person_in_charge.sql` | inserts the first `TNP_PIC` account, hash pre-verified |
 | `V9__create_applications_table.sql` | the `applications` table, with real foreign keys into `users` and `drives` |
 | `V10__add_pic_staff_details.sql` | PIC-only designation, department, staff id, office, phone - plus the `CHECK` that keeps them off every other role |
+| `V11__create_resumes_table.sql` | the `resumes` table, which doubles as the review job queue |
+| `V12__create_job_description_chunks_table.sql` | the pgvector table of job-description passages, with an HNSW index |
+| `V13__add_recruiter_role.sql` | allows the `RECRUITER` role |
 
 ## Testing
 
@@ -784,7 +803,7 @@ cd backend
 .\mvnw.cmd test
 ```
 
-161 tests on JUnit (Jupiter 6, the line Spring Boot 4 ships) in two kinds:
+170 tests on JUnit (Jupiter 6, the line Spring Boot 4 ships) in two kinds:
 
 - **Integration tests** (`*ApiTest`) run against a real PostgreSQL container started by
   Testcontainers using the `pgvector/pgvector:pg16` image, so **Docker must be running**.
@@ -813,7 +832,7 @@ cd frontend
 npm test
 ```
 
-60 tests on Vitest and React Testing Library, in jsdom. They need no backend and no
+65 tests on Vitest and React Testing Library, in jsdom. They need no backend and no
 Docker: every call through `src/api` is stubbed, which is also why `vitest.config.ts` is
 a separate file from `vite.config.ts` - the dev config carries a proxy to `:8081`, and a
 test must never quietly pass because a real server happened to be running.
@@ -829,10 +848,10 @@ exactly the controls they should, so that cannot come back unnoticed.
 | `api/client.test.ts` | the token on every request, RFC 9457 unwrapping, clearing on 401 but not 403, bodiless POST, 204 |
 | `pages/Drives.test.tsx` | Apply vs Delete vs Edit per role, the re-apply-after-withdraw button, and not calling `/eligible` for an incomplete profile |
 | `pages/Applications.test.tsx` | the coordinator's two tabs, applicant emails, withdraw, status changes |
-| `pages/Login.test.tsx` | the Administration tab admitting only `TNP_PIC`, and discarding the token when it refuses |
+| `pages/Login.test.tsx` | the Recruiter and Administration tabs each admitting only their role, and discarding the token when they refuse |
 | `pages/Resumes.test.tsx` | the finished review, retry, refusing a non-PDF before upload, uploading |
 | `pages/Assistant.test.tsx` | chat replies and follow-ups, the "not switched on" message, job-description search |
-| `pages/Dashboard.test.tsx` | each role's own dashboard, and each asking only for what that role may see; the admin promoting a student |
+| `pages/Dashboard.test.tsx` | each role's own dashboard, and each asking only for what that role may see; the admin promoting a student and adding a recruiter |
 | `components/ProtectedRoute.test.tsx` | each role let into its own pages and sent back from the others |
 
 ### Postman

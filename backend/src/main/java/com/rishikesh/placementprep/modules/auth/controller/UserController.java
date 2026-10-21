@@ -13,9 +13,11 @@ import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.server.ResponseStatusException;
 
+import com.rishikesh.placementprep.modules.auth.dto.CreateRecruiterRequest;
 import com.rishikesh.placementprep.modules.auth.dto.UpdateProfileRequest;
 import com.rishikesh.placementprep.modules.auth.dto.UpdateStaffProfileRequest;
 import com.rishikesh.placementprep.modules.auth.dto.UserProfileDTO;
@@ -45,7 +47,7 @@ public class UserController {
 
     /**
      * Every account, optionally only one role - the admin's user list, from which a student
-     * can be promoted to recruiter. Restricted to the person in charge by SecurityConfig.
+     * can be promoted to coordinator. Restricted to the person in charge by SecurityConfig.
      * An unknown role in ?role= is a 400, from Spring's own conversion to the enum.
      */
     @GetMapping
@@ -99,6 +101,18 @@ public class UserController {
     @PostMapping("/{id}/promote")
     public UserProfileDTO promote(@PathVariable Long id) {
         return userService.promoteToCoordinator(id).orElseThrow(() -> explainFailure(id));
+    }
+
+    /**
+     * Adds a company recruiter's account. Restricted to the person in charge by
+     * SecurityConfig. 201 with the new account, or 409 when the email is taken.
+     */
+    @PostMapping("/recruiters")
+    @ResponseStatus(HttpStatus.CREATED)
+    public UserProfileDTO createRecruiter(@Valid @RequestBody CreateRecruiterRequest request) {
+        return userService.createRecruiter(request)
+                .orElseThrow(() -> new ResponseStatusException(
+                        HttpStatus.CONFLICT, "An account with this email already exists"));
     }
 
     /**

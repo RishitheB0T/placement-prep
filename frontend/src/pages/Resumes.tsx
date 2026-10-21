@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState, type DragEvent, type FormEvent } 
 import { useNavigate, useSearchParams } from "react-router-dom";
 
 import { fetchMyProfile } from "../api/auth";
+import { isStudentRole } from "../api/roles";
 import { ApiError } from "../api/client";
 import { fetchAllDrives } from "../api/drives";
 import {
@@ -56,7 +57,7 @@ export default function Resumes() {
       try {
         const me = await fetchMyProfile();
         if (cancelled) return;
-        if (me.role === "TNP_PIC") {
+        if (!isStudentRole(me.role)) {
           navigate("/drives", { replace: true });
           return;
         }

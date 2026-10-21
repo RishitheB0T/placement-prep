@@ -7,9 +7,11 @@ import java.util.Optional;
 import java.util.stream.Collectors;
 
 import org.springframework.data.domain.Sort;
+import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import com.rishikesh.placementprep.modules.auth.dto.CreateRecruiterRequest;
 import com.rishikesh.placementprep.modules.auth.dto.UpdateProfileRequest;
 import com.rishikesh.placementprep.modules.auth.dto.UpdateStaffProfileRequest;
 import com.rishikesh.placementprep.modules.auth.dto.UserProfileDTO;
@@ -32,9 +34,11 @@ import com.rishikesh.placementprep.modules.auth.repository.UserRepository;
 public class UserService {
 
     private final UserRepository userRepository;
+    private final PasswordEncoder passwordEncoder;
 
-    public UserService(UserRepository userRepository) {
+    public UserService(UserRepository userRepository, PasswordEncoder passwordEncoder) {
         this.userRepository = userRepository;
+        this.passwordEncoder = passwordEncoder;
     }
 
     @Transactional(readOnly = true)
@@ -101,6 +105,29 @@ public class UserService {
                     user.setRole(Role.TNP_COORDINATOR);
                     return toDto(userRepository.save(user));
                 });
+    }
+
+    /**
+     * Creates a company recruiter's account. The endpoint using it is restricted to the
+     * person in charge, the same way promotion is.
+     *
+     * <p>The email is normalised exactly as AuthService does at registration and login, so
+     * the recruiter can sign in however they capitalise it.
+     *
+     * @return empty when the email is already registered
+     */
+    @Transactional
+    public Optional<UserProfileDTO> createRecruiter(CreateRecruiterRequest request) {
+        String email = request.email().trim().toLowerCase();
+        if (userRepository.existsByEmail(email)) {
+            return Optional.empty();
+        }
+
+        User user = new User();
+        user.setEmail(email);
+        user.setPasswordHash(passwordEncoder.encode(request.password()));
+        user.setRole(Role.RECRUITER);
+        return Optional.of(toDto(userRepository.save(user)));
     }
 
     /**

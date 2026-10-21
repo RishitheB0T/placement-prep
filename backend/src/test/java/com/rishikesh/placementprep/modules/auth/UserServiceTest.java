@@ -13,11 +13,14 @@ import java.util.Set;
 
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.data.domain.Sort;
+import org.springframework.security.crypto.password.PasswordEncoder;
 
+import com.rishikesh.placementprep.modules.auth.dto.CreateRecruiterRequest;
 import com.rishikesh.placementprep.modules.auth.dto.UserProfileDTO;
 import com.rishikesh.placementprep.modules.auth.model.Role;
 import com.rishikesh.placementprep.modules.auth.model.User;
@@ -31,11 +34,14 @@ class UserServiceTest {
     @Mock
     private UserRepository userRepository;
 
+    @Mock
+    private PasswordEncoder passwordEncoder;
+
     @InjectMocks
     private UserService userService;
 
     @Test
-    void promotingAStudentMakesThemARecruiter() {
+    void promotingAStudentMakesThemACoordinator() {
         User student = user(5L, Role.STUDENT);
         when(userRepository.findById(5L)).thenReturn(Optional.of(student));
         when(userRepository.save(student)).thenReturn(student);
@@ -51,6 +57,31 @@ class UserServiceTest {
         when(userRepository.findById(1L)).thenReturn(Optional.of(user(1L, Role.TNP_PIC)));
 
         assertThat(userService.promoteToCoordinator(1L)).isEmpty();
+        verify(userRepository, never()).save(any());
+    }
+
+    @Test
+    void creatingARecruiterStoresAHashedPasswordAndTheRecruiterRole() {
+        when(userRepository.existsByEmail("hr@company.com")).thenReturn(false);
+        when(passwordEncoder.encode("first-password")).thenReturn("hashed");
+        when(userRepository.save(any(User.class))).thenAnswer(call -> call.getArgument(0));
+
+        Optional<UserProfileDTO> created =
+                userService.createRecruiter(new CreateRecruiterRequest("  HR@Company.com ", "first-password"));
+
+        assertThat(created).get().extracting(UserProfileDTO::email, UserProfileDTO::role)
+                .containsExactly("hr@company.com", Role.RECRUITER);
+        ArgumentCaptor<User> saved = ArgumentCaptor.forClass(User.class);
+        verify(userRepository).save(saved.capture());
+        assertThat(saved.getValue().getPasswordHash()).isEqualTo("hashed");
+    }
+
+    @Test
+    void creatingARecruiterWithATakenEmailChangesNothing() {
+        when(userRepository.existsByEmail("hr@company.com")).thenReturn(true);
+
+        assertThat(userService.createRecruiter(new CreateRecruiterRequest("hr@company.com", "first-password")))
+                .isEmpty();
         verify(userRepository, never()).save(any());
     }
 

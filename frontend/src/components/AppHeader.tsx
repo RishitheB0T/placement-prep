@@ -1,6 +1,7 @@
 import { Link, useNavigate } from "react-router-dom";
 
 import { logout } from "../api/auth";
+import { canManageDrives, isStudentRole } from "../api/roles";
 import type { Role, UserProfile } from "../api/types";
 import { Icon, type IconName } from "./ui";
 
@@ -8,19 +9,21 @@ export type NavKey = "dashboard" | "drives" | "applications" | "resumes" | "assi
 
 /**
  * What each role is called on screen. The code and the database keep the original names;
- * these are the plain words for what each account does: a coordinator posts drives and
- * decides applications - the recruiting role - and the person in charge administers the
- * cell, including promoting students.
+ * these are the plain words for what each account does: a coordinator is a student who
+ * helps run the cell, a recruiter hires for a company, and the person in charge
+ * administers the cell, including adding recruiters and promoting students.
  */
 const ROLE_LABEL: Record<Role, string> = {
   STUDENT: "Student",
-  TNP_COORDINATOR: "Recruiter",
+  TNP_COORDINATOR: "Coordinator",
+  RECRUITER: "Recruiter",
   TNP_PIC: "Admin",
 };
 
 const ROLE_TONE: Record<Role, string> = {
   STUDENT: "bg-sky-100 text-sky-700",
   TNP_COORDINATOR: "bg-amber-100 text-amber-800",
+  RECRUITER: "bg-emerald-100 text-emerald-700",
   TNP_PIC: "bg-fuchsia-100 text-fuchsia-700",
 };
 
@@ -30,8 +33,8 @@ const ROLE_TONE: Record<Role, string> = {
  * Which buttons appear follows the same two independent questions the pages already ask:
  * can this account manage the board, and is this account a student. A coordinator answers
  * yes to both, so they see "Post a drive" and their own applications and resume feedback.
- * The person in charge is faculty, so "My applications" becomes "Applicants" and there is
- * no resume feedback - they have no resume to review.
+ * A recruiter and the person in charge are not students, so "My applications" becomes
+ * "Applicants" and there is no resume feedback or assistant - they have no resume to review.
  *
  * Rendered once, not once for desktop and again for mobile. Two copies would each be
  * read out by a screen reader, and a test asking for "the My applications button" would
@@ -40,8 +43,8 @@ const ROLE_TONE: Record<Role, string> = {
 export default function AppHeader({ profile, active }: { profile: UserProfile | null; active: NavKey }) {
   const navigate = useNavigate();
 
-  const canManage = profile?.role === "TNP_PIC" || profile?.role === "TNP_COORDINATOR";
-  const isStudent = profile !== null && profile.role !== "TNP_PIC";
+  const canManage = canManageDrives(profile?.role);
+  const isStudent = isStudentRole(profile?.role);
 
   const items: { key: NavKey; label: string; to: string; icon: IconName; show: boolean }[] = [
     { key: "dashboard", label: "Dashboard", to: "/dashboard", icon: "home", show: true },

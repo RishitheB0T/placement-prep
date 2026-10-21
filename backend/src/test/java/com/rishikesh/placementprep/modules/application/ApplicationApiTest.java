@@ -257,6 +257,28 @@ class ApplicationApiTest {
                 .andExpect(jsonPath("$.note").value("Strong fundamentals."));
     }
 
+    /** A company's recruiter reviews applicants the same way the cell does. */
+    @Test
+    void aRecruiterCanSeeApplicantsAndShortlistThem() throws Exception {
+        createUser("hr@zoho.com", Role.RECRUITER);
+        String recruiterToken = jwtService.generateToken("hr@zoho.com", Role.RECRUITER);
+        Application application = seedApplication(studentId, driveId, ApplicationStatus.APPLIED);
+
+        mockMvc.perform(get("/api/applications/drive/" + driveId)
+                        .header(HttpHeaders.AUTHORIZATION, bearer(recruiterToken)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].studentEmail").value("student@cse.nits.ac.in"));
+
+        mockMvc.perform(patch("/api/applications/" + application.getId() + "/status")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(recruiterToken))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"status":"SHORTLISTED"}
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("SHORTLISTED"));
+    }
+
     @Test
     void aStudentCannotChangeTheirOwnApplicationStatus() throws Exception {
         Application application = seedApplication(studentId, driveId, ApplicationStatus.APPLIED);

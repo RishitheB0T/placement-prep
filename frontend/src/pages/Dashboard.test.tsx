@@ -8,7 +8,7 @@ import * as drivesApi from "../api/drives";
 import * as resumesApi from "../api/resumes";
 import type { ApplicationStats } from "../api/types";
 import { renderPage } from "../test/render";
-import { application, coordinator, drive, personInCharge, student } from "../test/fixtures";
+import { application, coordinator, drive, personInCharge, recruiter, student } from "../test/fixtures";
 import Dashboard from "./Dashboard";
 
 vi.mock("../api/auth");
@@ -22,7 +22,7 @@ const STATS: ApplicationStats = {
 };
 
 /**
- * One route, three dashboards. Each test checks a role gets its own view - and does not
+ * One route, a dashboard per role. Each test checks a role gets its own view - and does not
  * ask the backend for things that role is not allowed to see.
  */
 describe("Dashboard", () => {
@@ -60,17 +60,35 @@ describe("Dashboard", () => {
     });
   });
 
-  describe("a recruiter", () => {
-    it("sees what is waiting for review, with a way straight to it", async () => {
+  describe("a coordinator", () => {
+    it("sees what is waiting for review, and their own placement as a student", async () => {
       vi.mocked(authApi.fetchMyProfile).mockResolvedValue(coordinator());
 
       renderPage(<Dashboard />);
 
-      expect(await screen.findByRole("heading", { name: "Recruiting overview" })).toBeInTheDocument();
+      expect(await screen.findByText("Coordinator dashboard")).toBeInTheDocument();
       expect(await screen.findByText("1 new")).toBeInTheDocument();
       expect(screen.getByRole("button", { name: "Review applicants" })).toBeInTheDocument();
       expect(screen.getByRole("button", { name: "Post a new drive" })).toBeInTheDocument();
-      // Promoting people is the admin's, not the recruiter's.
+      expect(screen.getByText("Your own placement")).toBeInTheDocument();
+      expect(applicationsApi.fetchMyApplications).toHaveBeenCalled();
+      // Promoting people is the admin's, not the coordinator's.
+      expect(authApi.fetchUsers).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("a recruiter", () => {
+    it("sees what is waiting for review, and nothing of a student's", async () => {
+      vi.mocked(authApi.fetchMyProfile).mockResolvedValue(recruiter());
+
+      renderPage(<Dashboard />);
+
+      expect(await screen.findByText("Recruiter dashboard")).toBeInTheDocument();
+      expect(await screen.findByText("1 new")).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Post a new drive" })).toBeInTheDocument();
+      // Not a student: no own placement, and no request the backend would answer 403.
+      expect(screen.queryByText("Your own placement")).not.toBeInTheDocument();
+      expect(applicationsApi.fetchMyApplications).not.toHaveBeenCalled();
       expect(authApi.fetchUsers).not.toHaveBeenCalled();
     });
   });
@@ -89,28 +107,43 @@ describe("Dashboard", () => {
       expect(screen.getByText("Needs your review")).toBeInTheDocument();
     });
 
-    it("can make a student a recruiter, after confirming", async () => {
+    it("can make a student a coordinator, after confirming", async () => {
       vi.spyOn(window, "confirm").mockReturnValue(true);
-      vi.mocked(authApi.promoteToRecruiter).mockResolvedValue(
+      vi.mocked(authApi.promoteToCoordinator).mockResolvedValue(
         coordinator({ id: 7, email: "rahul@cse.nits.ac.in" }),
       );
       renderPage(<Dashboard />);
 
-      await userEvent.click(await screen.findByRole("button", { name: "Make recruiter" }));
+      await userEvent.click(await screen.findByRole("button", { name: "Make coordinator" }));
 
-      expect(authApi.promoteToRecruiter).toHaveBeenCalledWith(7);
-      expect(await screen.findByText(/is now a recruiter/)).toBeInTheDocument();
-      // Now a recruiter, so they leave the Students list - nobody left to promote.
-      expect(screen.queryByRole("button", { name: "Make recruiter" })).not.toBeInTheDocument();
+      expect(authApi.promoteToCoordinator).toHaveBeenCalledWith(7);
+      expect(await screen.findByText(/is now a coordinator/)).toBeInTheDocument();
+      // Now a coordinator, so they leave the Students list - nobody left to promote.
+      expect(screen.queryByRole("button", { name: "Make coordinator" })).not.toBeInTheDocument();
     });
 
     it("promotes nobody when the confirmation is cancelled", async () => {
       vi.spyOn(window, "confirm").mockReturnValue(false);
       renderPage(<Dashboard />);
 
-      await userEvent.click(await screen.findByRole("button", { name: "Make recruiter" }));
+      await userEvent.click(await screen.findByRole("button", { name: "Make coordinator" }));
 
-      expect(authApi.promoteToRecruiter).not.toHaveBeenCalled();
+      expect(authApi.promoteToCoordinator).not.toHaveBeenCalled();
+    });
+
+    it("can add a company recruiter from the Recruiters tab", async () => {
+      vi.mocked(authApi.createRecruiter).mockResolvedValue(recruiter({ id: 9, email: "hr@zoho.com" }));
+      renderPage(<Dashboard />);
+
+      await userEvent.click(await screen.findByRole("button", { name: /Recruiters/ }));
+      await userEvent.type(screen.getByLabelText("Recruiter email"), "hr@zoho.com");
+      await userEvent.type(screen.getByLabelText("First password"), "first-password");
+      await userEvent.click(screen.getByRole("button", { name: "Add recruiter" }));
+
+      expect(authApi.createRecruiter).toHaveBeenCalledWith("hr@zoho.com", "first-password");
+      expect(await screen.findByText(/can now sign in on the Recruiter tab/)).toBeInTheDocument();
+      // The new account appears in the Recruiters list straight away.
+      expect(screen.getByText("Company recruiter")).toBeInTheDocument();
     });
   });
 });

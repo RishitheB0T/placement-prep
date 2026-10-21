@@ -26,6 +26,12 @@ import jakarta.servlet.DispatcherType;
 @EnableConfigurationProperties(JwtProperties.class)
 public class SecurityConfig {
 
+    /** Accounts that run hiring: post drives and decide applications. */
+    private static final String[] MANAGERS = {"TNP_PIC", "TNP_COORDINATOR", "RECRUITER"};
+
+    /** Accounts that are students: apply, get resume feedback, use the assistant. */
+    private static final String[] STUDENTS = {"STUDENT", "TNP_COORDINATOR"};
+
     @Bean
     SecurityFilterChain securityFilterChain(HttpSecurity http,
                                             JwtAuthenticationFilter jwtAuthenticationFilter,
@@ -59,36 +65,46 @@ public class SecurityConfig {
                     .requestMatchers("/api/auth/register", "/api/auth/login").permitAll()
                     .requestMatchers("/actuator/health", "/actuator/health/**").permitAll()
 
-                    // Reading the board needs an account, but either role will do.
+                    // Reading the board needs an account, but any role will do.
                     .requestMatchers(HttpMethod.GET, "/api/drives", "/api/drives/**").authenticated()
 
-                    // Changing the board is the training-and-placement cell's job only.
-                    // Both cell roles do it: coordinators run the board day to day, and
-                    // the person in charge can do anything a coordinator can.
+                    // Changing the board is for the people who run hiring: a company's
+                    // recruiter, a coordinator running the board day to day, and the
+                    // person in charge, who can do anything a coordinator can.
                     .requestMatchers(HttpMethod.POST, "/api/drives", "/api/drives/**")
-                            .hasAnyRole("TNP_PIC", "TNP_COORDINATOR")
+                            .hasAnyRole(MANAGERS)
                     .requestMatchers(HttpMethod.PUT, "/api/drives/**")
-                            .hasAnyRole("TNP_PIC", "TNP_COORDINATOR")
+                            .hasAnyRole(MANAGERS)
                     .requestMatchers(HttpMethod.DELETE, "/api/drives/**")
-                            .hasAnyRole("TNP_PIC", "TNP_COORDINATOR")
+                            .hasAnyRole(MANAGERS)
 
-                    // Applying, reading your own applications, and withdrawing need only
-                    // an account - ApplicationController resolves the caller's own id
-                    // from the token, so there is nothing here for a role to gate.
-                    .requestMatchers(HttpMethod.POST, "/api/applications").authenticated()
-                    .requestMatchers(HttpMethod.GET, "/api/applications/me").authenticated()
-                    .requestMatchers(HttpMethod.POST, "/api/applications/*/withdraw").authenticated()
+                    // Applying, reading your own applications, and withdrawing are a
+                    // student's actions - a coordinator is a student, a recruiter and the
+                    // person in charge are not. ApplicationController resolves the
+                    // caller's own id from the token, so nobody can act for someone else.
+                    .requestMatchers(HttpMethod.POST, "/api/applications").hasAnyRole(STUDENTS)
+                    .requestMatchers(HttpMethod.GET, "/api/applications/me").hasAnyRole(STUDENTS)
+                    .requestMatchers(HttpMethod.POST, "/api/applications/*/withdraw").hasAnyRole(STUDENTS)
 
                     // Seeing who applied to a drive, and deciding what happens to them,
-                    // is the placement cell's job. Left open, any student could read the
-                    // whole applicant list for a drive they are competing in.
+                    // is for the people running hiring. Left open, any student could read
+                    // the whole applicant list for a drive they are competing in.
                     .requestMatchers(HttpMethod.GET, "/api/applications/drive/*")
-                            .hasAnyRole("TNP_PIC", "TNP_COORDINATOR")
-                    // Counts across every drive: the cell's dashboard, not a student's.
+                            .hasAnyRole(MANAGERS)
+                    // Counts across every drive: the hiring side's dashboard, not a student's.
                     .requestMatchers(HttpMethod.GET, "/api/applications/stats")
-                            .hasAnyRole("TNP_PIC", "TNP_COORDINATOR")
+                            .hasAnyRole(MANAGERS)
                     .requestMatchers(HttpMethod.PATCH, "/api/applications/*/status")
-                            .hasAnyRole("TNP_PIC", "TNP_COORDINATOR")
+                            .hasAnyRole(MANAGERS)
+
+                    // Adding a company's recruiter is the person in charge's decision, like
+                    // promotion. Recruiters cannot register themselves: registration is for
+                    // college addresses only.
+                    .requestMatchers(HttpMethod.POST, "/api/users/recruiters").hasRole("TNP_PIC")
+
+                    // CGPA, branch and marks belong to students. A recruiter or the person
+                    // in charge has none to fill in. Reading /api/users/me stays open to all.
+                    .requestMatchers(HttpMethod.PUT, "/api/users/me").hasAnyRole(STUDENTS)
 
                     // Staffing the cell is the person in charge's decision alone, so this
                     // one stays singular. A coordinator calling it gets a 403, which is
@@ -113,11 +129,11 @@ public class SecurityConfig {
                     // a 403 here. ResumeController keys every path to the caller's own id,
                     // so one rule covers uploading, reading, downloading and retrying.
                     .requestMatchers("/api/resumes", "/api/resumes/**")
-                            .hasAnyRole("STUDENT", "TNP_COORDINATOR")
+                            .hasAnyRole(STUDENTS)
 
                     // The assistant's tools all act as a student - eligible drives, my
                     // applications, apply - so it follows the same rule as resumes.
-                    .requestMatchers("/api/agent/**").hasAnyRole("STUDENT", "TNP_COORDINATOR")
+                    .requestMatchers("/api/agent/**").hasAnyRole(STUDENTS)
 
                     // Default deny. Anything added later is locked until a rule is written
                     // for it, which fails safe rather than silently exposing a new endpoint.

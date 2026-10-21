@@ -3,18 +3,19 @@ import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import * as authApi from "../api/auth";
+import type { Role } from "../api/types";
 import { renderPageWithRoutes } from "../test/render";
 import Login from "./Login";
 
 vi.mock("../api/auth");
 
 /**
- * The two doors.
+ * The three doors.
  *
  * There is one login endpoint; the tabs differ only in what the page does with the
- * answer. Only Administration is enforced, and only against TNP_PIC - the Student tab is
- * the original unrestricted form, because a coordinator was never given a door of their
- * own and locking them out of the one they used would be a regression.
+ * answer. Recruiter and Administration are enforced, each against its one role - the
+ * Student tab is the original unrestricted form, because a coordinator was never given a
+ * door of their own and locking them out of the one they used would be a regression.
  */
 describe("Login", () => {
   const renderLogin = () =>
@@ -24,14 +25,14 @@ describe("Login", () => {
       destinations: { "/dashboard": "dashboard page" },
     });
 
-  const signIn = async (tab?: "Student" | "Administration") => {
+  const signIn = async (tab?: "Student" | "Recruiter" | "Administration") => {
     if (tab) await userEvent.click(screen.getByRole("button", { name: tab }));
     await userEvent.type(screen.getByLabelText(/email/i), "someone@cse.nits.ac.in");
     await userEvent.type(screen.getByLabelText(/password/i), "a-password");
     await userEvent.click(screen.getByRole("button", { name: "Sign in" }));
   };
 
-  const loginResolvesAs = (role: "STUDENT" | "TNP_COORDINATOR" | "TNP_PIC") =>
+  const loginResolvesAs = (role: Role) =>
     vi.mocked(authApi.login).mockResolvedValue({
       token: "a.b.c",
       email: "someone@cse.nits.ac.in",
@@ -66,6 +67,26 @@ describe("Login", () => {
       await signIn();
 
       expect(await screen.findByText("dashboard page")).toBeInTheDocument();
+    });
+  });
+
+  describe("the Recruiter tab", () => {
+    it("lets a recruiter through", async () => {
+      loginResolvesAs("RECRUITER");
+      renderLogin();
+      await signIn("Recruiter");
+
+      expect(await screen.findByText("dashboard page")).toBeInTheDocument();
+    });
+
+    it("turns a student away and throws the token away", async () => {
+      loginResolvesAs("STUDENT");
+      renderLogin();
+      await signIn("Recruiter");
+
+      expect(await screen.findByRole("alert")).toHaveTextContent(/not a recruiter account/i);
+      expect(authApi.logout).toHaveBeenCalled();
+      expect(screen.queryByText("dashboard page")).not.toBeInTheDocument();
     });
   });
 

@@ -345,7 +345,7 @@
     },
     {
       "name": "3. Drives",
-      "description": "The placement board. Reading needs any account; changing it needs a recruiter or the admin.",
+      "description": "The placement board. Reading needs any account; changing it needs a coordinator, a recruiter or the admin.",
       "item": [
         {
           "name": "Post a drive as a student -> 403",
@@ -1229,8 +1229,312 @@
       ]
     },
     {
-      "name": "8. Promotion and clean-up",
-      "description": "Staffing the cell is the admin's call alone. The student's delete is refused before the promotion; after it, the same token is a recruiter's, because the backend re-reads the role from the database on every request.",
+      "name": "8. Recruiters",
+      "description": "A recruiter is a company hiring contact, added by the admin with a company email. They post drives and review applicants like the cell, but are not a student: applying, resume feedback and the assistant all answer 403.",
+      "item": [
+        {
+          "name": "Add a recruiter as a student -> 403",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{studentToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/users/recruiters",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{recruiterEmail}}\",\n  \"password\": \"{{recruiterPassword}}\"\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.collectionVariables.set(\"recruiterEmail\", `hr.${Date.now()}@company.com`);"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"403 Forbidden\", () => pm.response.to.have.status(403));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Add a recruiter as the admin",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/users/recruiters",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{recruiterEmail}}\",\n  \"password\": \"{{recruiterPassword}}\"\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"201 Created\", () => pm.response.to.have.status(201));",
+                  "const body = pm.response.json();",
+                  "pm.test(\"created as a RECRUITER\", () => pm.expect(body.role).to.eql(\"RECRUITER\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Add the same recruiter again -> 409",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/users/recruiters",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{recruiterEmail}}\",\n  \"password\": \"{{recruiterPassword}}\"\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"409 Conflict\", () => pm.response.to.have.status(409));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Sign in as the recruiter",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/auth/login",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{recruiterEmail}}\",\n  \"password\": \"{{recruiterPassword}}\"\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"200 OK\", () => pm.response.to.have.status(200));",
+                  "const body = pm.response.json();",
+                  "pm.test(\"the token carries RECRUITER\", () => pm.expect(body.role).to.eql(\"RECRUITER\"));",
+                  "pm.collectionVariables.set(\"recruiterToken\", body.token);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Applicants for a drive as the recruiter",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{recruiterToken}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/applications/drive/{{driveId}}"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"200 OK\", () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Application counts as the recruiter",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{recruiterToken}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/applications/stats"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"200 OK\", () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Apply as the recruiter -> 403",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{recruiterToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/applications",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"driveId\": {{driveId}}\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"403 Forbidden\", () => pm.response.to.have.status(403));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "My resumes as the recruiter -> 403",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{recruiterToken}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/resumes/me"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"403 Forbidden\", () => pm.response.to.have.status(403));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Ask the assistant as the recruiter -> 403",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{recruiterToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/agent/chat",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"message\": \"Which drives can I apply to?\"\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"403 Forbidden\", () => pm.response.to.have.status(403));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Promote as the recruiter -> 403",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{recruiterToken}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/users/{{studentId}}/promote"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"403 Forbidden\", () => pm.response.to.have.status(403));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "9. Promotion and clean-up",
+      "description": "Staffing the cell is the admin's call alone. The student's delete is refused before the promotion; after it, the same token is a coordinator's, because the backend re-reads the role from the database on every request.",
       "item": [
         {
           "name": "Delete the drive as a student -> 403",
@@ -1330,7 +1634,7 @@
           ]
         },
         {
-          "name": "Promote to recruiter as the admin",
+          "name": "Promote to coordinator as the admin",
           "request": {
             "method": "POST",
             "header": [
@@ -1348,7 +1652,7 @@
                 "type": "text/javascript",
                 "exec": [
                   "pm.test(\"200 OK\", () => pm.response.to.have.status(200));",
-                  "pm.test(\"now TNP_COORDINATOR (recruiter)\", () => pm.expect(pm.response.json().role).to.eql(\"TNP_COORDINATOR\"));"
+                  "pm.test(\"now TNP_COORDINATOR (coordinator)\", () => pm.expect(pm.response.json().role).to.eql(\"TNP_COORDINATOR\"));"
                 ]
               }
             }
@@ -1472,6 +1776,18 @@
     },
     {
       "key": "resumeId",
+      "value": ""
+    },
+    {
+      "key": "recruiterEmail",
+      "value": ""
+    },
+    {
+      "key": "recruiterPassword",
+      "value": "Recruiter2026!"
+    },
+    {
+      "key": "recruiterToken",
       "value": ""
     }
   ]

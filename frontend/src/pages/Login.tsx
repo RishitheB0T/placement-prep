@@ -3,18 +3,24 @@ import { Link, useLocation, useNavigate } from "react-router-dom";
 
 import { login, logout } from "../api/auth";
 import { ApiError } from "../api/client";
+import type { Role } from "../api/types";
 import AuthLayout from "../components/AuthLayout";
 import { Icon, Spinner } from "../components/ui";
 
-type Mode = "student" | "administration";
+type Mode = "student" | "recruiter" | "administration";
+
+/** The one role each restricted mode accepts. The student mode accepts any account. */
+const REQUIRED_ROLE: Partial<Record<Mode, Role>> = {
+  recruiter: "RECRUITER",
+  administration: "TNP_PIC",
+};
 
 /**
- * Sign in, in one of two framings.
+ * Sign in, in one of three framings.
  *
- * Only the "administration" mode is actually enforced, and only against TNP_PIC - a
- * coordinator's sign-in experience is untouched, exactly like a student's. The "student"
- * mode is the original, unrestricted form: it accepts any account, PIC included, same as
- * before this toggle existed. There was no reason to lock coordinators out of anywhere
+ * The "recruiter" and "administration" modes are enforced, each against its one role. The
+ * "student" mode is the original, unrestricted form: it accepts any account, same as
+ * before these tabs existed. There was no reason to lock coordinators out of anywhere
  * they could already sign in.
  *
  * The backend has no separate "administration" login endpoint - it cannot, since which
@@ -55,9 +61,10 @@ export default function Login() {
       // so a rejection here has to actively undo that rather than simply not navigating -
       // otherwise a valid-but-wrong-tab token would be left sitting in localStorage and
       // the next page load would act as though this had succeeded.
-      if (mode === "administration" && response.role !== "TNP_PIC") {
+      const required = REQUIRED_ROLE[mode];
+      if (required !== undefined && response.role !== required) {
         logout();
-        setError("This is not an administration account. Use the student sign-in instead.");
+        setError(`This is not ${mode === "recruiter" ? "a recruiter" : "an administration"} account. Use the student sign-in instead.`);
         return;
       }
 
@@ -82,18 +89,23 @@ export default function Login() {
           <ModeButton active={mode === "student"} onClick={() => switchMode("student")}>
             Student
           </ModeButton>
+          <ModeButton active={mode === "recruiter"} onClick={() => switchMode("recruiter")}>
+            Recruiter
+          </ModeButton>
           <ModeButton active={mode === "administration"} onClick={() => switchMode("administration")}>
             Administration
           </ModeButton>
         </div>
 
         <h1 className="mt-6 text-3xl font-extrabold tracking-tight text-slate-900">
-          {mode === "administration" ? "Administration sign-in" : "Sign in"}
+          {mode === "administration" ? "Administration sign-in" : mode === "recruiter" ? "Recruiter sign-in" : "Sign in"}
         </h1>
         <p className="mt-1 text-sm text-slate-500">
           {mode === "administration"
             ? "For the person in charge of the placement cell."
-            : "Welcome back - pick up where you left off."}
+            : mode === "recruiter"
+              ? "For company recruiters - use the account the placement cell created for you."
+              : "Welcome back - pick up where you left off."}
         </p>
 
         {error && (
@@ -114,7 +126,7 @@ export default function Login() {
               onChange={(e) => setEmail(e.target.value)}
               required
               autoComplete="email"
-              placeholder="name@ei.nits.ac.in"
+              placeholder={mode === "recruiter" ? "you@company.com" : "name@ei.nits.ac.in"}
               className="input pl-10"
             />
           </span>

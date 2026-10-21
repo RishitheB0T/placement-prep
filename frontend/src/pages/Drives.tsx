@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 
 import { applyToDrive, fetchMyApplications } from "../api/applications";
 import { fetchMyProfile } from "../api/auth";
+import { canManageDrives, isStudentRole } from "../api/roles";
 import { ApiError } from "../api/client";
 import { deleteDrive, fetchAllDrives, fetchEligibleDrives } from "../api/drives";
 import type { Application, ApplicationStatus, Drive, UserProfile } from "../api/types";
@@ -42,10 +43,10 @@ export default function Drives() {
 
   // Two independent questions, not one. A coordinator IS a student - one who has been
   // given the run of the board - so they answer yes to both: they apply to drives like
-  // anyone else, and they manage them. Only the person in charge, an actual member of
-  // faculty with no CGPA to their name, is management and nothing else.
-  const canManage = profile?.role === "TNP_PIC" || profile?.role === "TNP_COORDINATOR";
-  const isStudent = profile !== null && profile.role !== "TNP_PIC";
+  // anyone else, and they manage them. A company recruiter and the person in charge have
+  // no CGPA to their name, so they are management and nothing else.
+  const canManage = canManageDrives(profile?.role);
+  const isStudent = isStudentRole(profile?.role);
 
   // useCallback so the effect below does not re-run on every render.
   const load = useCallback(
@@ -61,9 +62,9 @@ export default function Drives() {
         setProfile(me);
 
         // "Eligible for me" is a student concept, and a coordinator is a student, so they
-        // get it too. Only the PIC is excluded: they hold no CGPA or branch, so
-        // /api/drives/eligible would answer 409 for them every time.
-        const student = me.role !== "TNP_PIC";
+        // get it too. A recruiter and the PIC are excluded: they hold no CGPA or branch,
+        // so /api/drives/eligible would answer 409 for them every time.
+        const student = isStudentRole(me.role);
 
         // The profile we just loaded already says whether it is complete, so an
         // incomplete one short-circuits here rather than making a request we know will
