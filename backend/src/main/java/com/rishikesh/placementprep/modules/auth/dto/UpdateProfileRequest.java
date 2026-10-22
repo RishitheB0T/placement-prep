@@ -7,6 +7,7 @@ import jakarta.validation.constraints.DecimalMin;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.PositiveOrZero;
+import jakarta.validation.constraints.Size;
 
 /**
  * Body of PUT /api/users/me.
@@ -24,7 +25,7 @@ public record UpdateProfileRequest(
     @NotNull @DecimalMin("0.0") @DecimalMax("10.0")
     BigDecimal cgpa,
 
-    @NotBlank
+    @NotBlank @Size(max = 32)
     String branch,
 
     @NotNull @DecimalMin("0.0") @DecimalMax("100.0")

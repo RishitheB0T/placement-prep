@@ -9,6 +9,8 @@ import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.regex.Pattern;
+import java.util.stream.Stream;
 
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
@@ -37,6 +39,10 @@ public class ResumeService {
     /** A review still in flight. A second upload for the same drive waits for these. */
     private static final List<ResumeStatus> IN_PROGRESS =
             List.of(ResumeStatus.PENDING, ResumeStatus.PROCESSING);
+
+    /** How upload() names stored files: a random UUID plus ".pdf". */
+    private static final Pattern STORAGE_KEY =
+            Pattern.compile("[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\\.pdf");
 
     private final ResumeRepository resumeRepository;
     private final Path storageDirectory;
@@ -202,6 +208,44 @@ public class ResumeService {
         }
         resumeRepository.saveAll(interrupted);
         return interrupted.size();
+    }
+
+    /**
+     * Deletes stored PDFs that no resume row points at any more.
+     *
+     * <p>Deleting a drive removes its resume rows through ON DELETE CASCADE, but the
+     * database cannot delete files on disk. Rather than make the drive module reach into
+     * this one, ResumeReviewJob runs this sweep every few hours.
+     *
+     * <p>Only files named the way upload() names them ({@code <uuid>.pdf}) are considered,
+     * so nothing else that happens to sit in the folder is touched. Files modified after
+     * {@code olderThan} are skipped: upload() writes the file a moment before its row is
+     * committed, and a sweep landing in that gap must not delete a resume being uploaded.
+     *
+     * @return how many files were deleted
+     */
+    @Transactional(readOnly = true)
+    public int deleteOrphanedFiles(Instant olderThan) {
+        if (!Files.isDirectory(storageDirectory)) {
+            return 0;
+        }
+        int deleted = 0;
+        try (Stream<Path> files = Files.list(storageDirectory)) {
+            for (Path file : (Iterable<Path>) files::iterator) {
+                String name = file.getFileName().toString();
+                if (!STORAGE_KEY.matcher(name).matches()
+                        || !Files.isRegularFile(file)
+                        || Files.getLastModifiedTime(file).toInstant().isAfter(olderThan)
+                        || resumeRepository.existsByStorageKey(name)) {
+                    continue;
+                }
+                Files.deleteIfExists(file);
+                deleted++;
+            }
+        } catch (IOException e) {
+            throw new UncheckedIOException("Could not sweep " + storageDirectory, e);
+        }
+        return deleted;
     }
 
     /** The stored PDF's bytes. Public because ResumeReviewJob reads the file it claimed. */

@@ -131,6 +131,19 @@ describe("Dashboard", () => {
       expect(authApi.promoteToCoordinator).not.toHaveBeenCalled();
     });
 
+    /** The "forgot password" path: the admin sets a temporary one and hands it over. */
+    it("can reset someone's password", async () => {
+      vi.mocked(authApi.resetPassword).mockResolvedValue(undefined);
+      renderPage(<Dashboard />);
+
+      await userEvent.click(await screen.findByRole("button", { name: "Reset password for rahul@cse.nits.ac.in" }));
+      await userEvent.type(screen.getByLabelText("New password for rahul@cse.nits.ac.in"), "temporary-pass");
+      await userEvent.click(screen.getByRole("button", { name: "Set password" }));
+
+      expect(authApi.resetPassword).toHaveBeenCalledWith(7, "temporary-pass");
+      expect(await screen.findByText(/can now sign in with the new password/)).toBeInTheDocument();
+    });
+
     it("can add a company recruiter from the Recruiters tab", async () => {
       vi.mocked(authApi.createRecruiter).mockResolvedValue(recruiter({ id: 9, email: "hr@zoho.com" }));
       renderPage(<Dashboard />);

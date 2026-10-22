@@ -115,6 +115,18 @@ public class AuthService {
         return Role.valueOf(authority.replaceFirst("^ROLE_", ""));
     }
 
+    /**
+     * A new token for an already signed-in account, carrying the role the database holds
+     * now. Read-only: nothing changes but the token handed back.
+     *
+     * @return empty when the account no longer exists
+     */
+    @Transactional(readOnly = true)
+    public Optional<AuthResponse> refresh(String email) {
+        return userRepository.findByEmail(email)
+                .map(user -> toResponse(user.getEmail(), user.getRole()));
+    }
+
     private AuthResponse toResponse(String email, Role role) {
         return new AuthResponse(
                 jwtService.generateToken(email, role),

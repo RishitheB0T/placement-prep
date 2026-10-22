@@ -97,6 +97,19 @@ public class DriveService {
                 .toList();
     }
 
+    /**
+     * Whether one drive is open and these marks meet its criteria. Answered by the same
+     * query as the eligible list, so "eligible" means exactly one thing everywhere - the
+     * apply rule, the "Eligible for me" tab and the deadline reminders all agree.
+     */
+    @Transactional(readOnly = true)
+    public boolean isEligible(Long driveId, BigDecimal cgpa, BigDecimal tenth,
+                              BigDecimal twelfth, int backlogs, String branch) {
+        return driveRepository.findEligible(cgpa, tenth, twelfth, backlogs, branch)
+                .stream()
+                .anyMatch(drive -> drive.getId().equals(driveId));
+    }
+
     // ----------------------------------------------------------------- Update
 
     /**

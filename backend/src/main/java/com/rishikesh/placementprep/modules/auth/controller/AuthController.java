@@ -2,6 +2,8 @@ package com.rishikesh.placementprep.modules.auth.controller;
 
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -56,5 +58,21 @@ public class AuthController {
         return authService.login(request)
                 .orElseThrow(() -> new ResponseStatusException(
                         HttpStatus.UNAUTHORIZED, "Invalid email or password"));
+    }
+
+    /**
+     * Issues a fresh token carrying the account's current role.
+     *
+     * <p>Needs a valid token already (SecurityConfig's default rule), so it cannot be used
+     * to sign in. It exists for one situation: the browser reads the role inside its token
+     * to decide which pages to show, so after a promotion the old token would keep hiding
+     * the coordinator's pages until the next sign-in. The frontend calls this when the
+     * profile's role and the token's role disagree, and the new pages appear immediately.
+     */
+    @PostMapping("/refresh")
+    public AuthResponse refresh(@AuthenticationPrincipal UserDetails principal) {
+        return authService.refresh(principal.getUsername())
+                .orElseThrow(() -> new ResponseStatusException(
+                        HttpStatus.UNAUTHORIZED, "Account no longer exists"));
     }
 }

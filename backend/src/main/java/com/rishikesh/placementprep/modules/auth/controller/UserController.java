@@ -17,7 +17,9 @@ import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.server.ResponseStatusException;
 
+import com.rishikesh.placementprep.modules.auth.dto.ChangePasswordRequest;
 import com.rishikesh.placementprep.modules.auth.dto.CreateRecruiterRequest;
+import com.rishikesh.placementprep.modules.auth.dto.ResetPasswordRequest;
 import com.rishikesh.placementprep.modules.auth.dto.UpdateProfileRequest;
 import com.rishikesh.placementprep.modules.auth.dto.UpdateStaffProfileRequest;
 import com.rishikesh.placementprep.modules.auth.dto.UserProfileDTO;
@@ -101,6 +103,33 @@ public class UserController {
     @PostMapping("/{id}/promote")
     public UserProfileDTO promote(@PathVariable Long id) {
         return userService.promoteToCoordinator(id).orElseThrow(() -> explainFailure(id));
+    }
+
+    /**
+     * Changes my own password. Open to every role. 204 when it worked; 400 when the
+     * current password is wrong - the request names a value the server rejects, so it is
+     * the caller's mistake rather than an authentication failure (a 401 would also make
+     * the frontend throw away a perfectly good token).
+     */
+    @PutMapping("/me/password")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void changePassword(@AuthenticationPrincipal UserDetails principal,
+                               @Valid @RequestBody ChangePasswordRequest request) {
+        if (!userService.changePassword(principal.getUsername(), request.currentPassword(), request.newPassword())) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Your current password is incorrect");
+        }
+    }
+
+    /**
+     * Sets a new password on someone else's account. Restricted to the person in charge
+     * by SecurityConfig. 204 when it worked, 404 when there is no such account.
+     */
+    @PostMapping("/{id}/password")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void resetPassword(@PathVariable Long id, @Valid @RequestBody ResetPasswordRequest request) {
+        if (!userService.resetPassword(id, request.newPassword())) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "No account with id " + id);
+        }
     }
 
     /**

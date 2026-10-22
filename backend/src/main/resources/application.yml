@@ -14,6 +14,13 @@ spring:
     problemdetails:
       enabled: true
 
+  # Scheduled jobs share one thread by default. Two, so a slow resume review (a model
+  # call can take half a minute) never holds up the deadline reminders, or the reverse.
+  task:
+    scheduling:
+      pool:
+        size: 2
+
   web:
     error:
       # Spring Boot 4 moved this group from server.error.* to spring.web.error.*. The old
@@ -102,6 +109,18 @@ resume:
   review:
     # ISO-8601 duration: PT5S is five seconds.
     poll-delay: ${RESUME_REVIEW_POLL_DELAY:PT5S}
+  # Stored PDFs whose resume row is gone (its drive was deleted) are removed this often.
+  cleanup:
+    initial-delay: PT10M
+    poll-delay: PT6H
+
+# Students' drive notifications: how soon after startup the first pass runs, and how
+# long to wait after each pass before the next. A reminder is sent at most once per
+# student, drive and kind, so running often only makes reminders more timely.
+notification:
+  reminders:
+    initial-delay: ${NOTIFICATION_INITIAL_DELAY:PT1M}
+    poll-delay: ${NOTIFICATION_POLL_DELAY:PT15M}
 
 management:
   endpoints:

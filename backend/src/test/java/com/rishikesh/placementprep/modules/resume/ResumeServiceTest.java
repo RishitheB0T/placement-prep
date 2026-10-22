@@ -13,6 +13,8 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.attribute.FileTime;
+import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 
@@ -132,6 +134,35 @@ class ResumeServiceTest {
 
         assertThat(resumeService.requeueInterrupted()).isEqualTo(1);
         assertThat(interrupted.getStatus()).isEqualTo(ResumeStatus.PENDING);
+    }
+
+    /**
+     * The orphan sweep deletes only what is safe to delete: a stored-resume file that is
+     * old enough and that no row points at. A file a row still uses, a file uploaded a
+     * moment ago, and anything not named like a stored resume are all left alone.
+     */
+    @Test
+    void theOrphanSweepDeletesOnlyOldUnreferencedResumeFiles() throws IOException {
+        Instant cutoff = Instant.parse("2026-01-01T00:00:00Z");
+        Path orphan = storeAt("11111111-1111-1111-1111-111111111111.pdf", cutoff.minusSeconds(3600));
+        Path referenced = storeAt("22222222-2222-2222-2222-222222222222.pdf", cutoff.minusSeconds(3600));
+        Path recent = storeAt("33333333-3333-3333-3333-333333333333.pdf", cutoff.plusSeconds(60));
+        Path unrelated = storeAt("notes.txt", cutoff.minusSeconds(3600));
+        when(resumeRepository.existsByStorageKey(orphan.getFileName().toString())).thenReturn(false);
+        when(resumeRepository.existsByStorageKey(referenced.getFileName().toString())).thenReturn(true);
+
+        assertThat(resumeService.deleteOrphanedFiles(cutoff)).isEqualTo(1);
+
+        assertThat(orphan).doesNotExist();
+        assertThat(referenced).exists();
+        assertThat(recent).exists();
+        assertThat(unrelated).exists();
+    }
+
+    private Path storeAt(String name, Instant modified) throws IOException {
+        Path file = Files.write(storage.resolve(name), PDF);
+        Files.setLastModifiedTime(file, FileTime.from(modified));
+        return file;
     }
 
     private static Resume resume(ResumeStatus status) {

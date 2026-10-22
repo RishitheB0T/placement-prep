@@ -41,6 +41,21 @@ describe("Applications", () => {
       expect(screen.getByRole("button", { name: "Withdraw" })).toBeInTheDocument();
     });
 
+    /**
+     * Withdrawing a rejection and applying again would reopen it as APPLIED, so a decided
+     * application has no Withdraw button - the backend refuses it too.
+     */
+    it("cannot withdraw an application that has been decided", async () => {
+      vi.mocked(applicationsApi.fetchMyApplications).mockResolvedValue([
+        application({ driveId: 10, status: "REJECTED" }),
+      ]);
+
+      renderPage(<Applications />);
+      await screen.findByRole("heading", { name: "My applications" });
+
+      expect(screen.queryByRole("button", { name: "Withdraw" })).not.toBeInTheDocument();
+    });
+
     it("gets no review tools at all", async () => {
       renderPage(<Applications />);
       await screen.findByRole("heading", { name: "My applications" });
@@ -131,6 +146,46 @@ describe("Applications", () => {
       await userEvent.selectOptions(screen.getByRole("combobox"), "10");
 
       expect(await screen.findByText("Student #7")).toBeInTheDocument();
+    });
+
+    /** The student pulled out; the backend refuses to decide it, so nothing is offered. */
+    it("offers no decisions on an application the student withdrew", async () => {
+      vi.mocked(applicationsApi.fetchApplicationsForDrive).mockResolvedValue([
+        application({ id: 200, studentId: 7, studentEmail: "rahul@cse.nits.ac.in", status: "WITHDRAWN" }),
+      ]);
+
+      renderPage(<Applications />);
+      await screen.findByRole("heading", { name: "Applicants" });
+      await userEvent.selectOptions(screen.getByRole("combobox"), "10");
+
+      expect(await screen.findByText("Withdrawn by the student.")).toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: /^Mark / })).not.toBeInTheDocument();
+    });
+
+    it("downloads the applicants as a CSV file", async () => {
+      // jsdom has no object URLs and cannot download, so both are replaced for this test
+      // and put back afterwards.
+      const original = { create: URL.createObjectURL, revoke: URL.revokeObjectURL };
+      const createObjectURL = vi.fn((_blob: Blob) => "blob:applicants");
+      URL.createObjectURL = createObjectURL;
+      URL.revokeObjectURL = vi.fn();
+      const click = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => {});
+
+      try {
+        renderPage(<Applications />);
+        await screen.findByRole("heading", { name: "Applicants" });
+        await userEvent.selectOptions(screen.getByRole("combobox"), "10");
+        await userEvent.click(await screen.findByRole("button", { name: "Download CSV" }));
+
+        expect(createObjectURL).toHaveBeenCalledWith(expect.any(Blob));
+        expect(click).toHaveBeenCalled();
+        const csv = await createObjectURL.mock.calls[0][0].text();
+        expect(csv).toContain("Student email,Status,Applied on,Note");
+        expect(csv).toContain("rahul@cse.nits.ac.in,applied");
+      } finally {
+        URL.createObjectURL = original.create;
+        URL.revokeObjectURL = original.revoke;
+      }
     });
 
     it("can move an application along", async () => {

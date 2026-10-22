@@ -14,7 +14,7 @@ import jakarta.validation.constraints.Size;
  * anything past 72 bytes).
  */
 public record CreateRecruiterRequest(
-    @NotBlank @Email
+    @NotBlank @Email @Size(max = 255)
     String email,
 
     @NotBlank @Size(min = 8, max = 72)

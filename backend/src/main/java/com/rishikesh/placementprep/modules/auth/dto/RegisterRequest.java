@@ -32,7 +32,7 @@ public record RegisterRequest(
      * before AuthService lowercases the address, so a student typing Name@CSE.NITS.ac.in
      * would otherwise be turned away.
      */
-    @NotBlank
+    @NotBlank @Size(max = 255)
     @Email
     @Pattern(
         regexp = "(?i)^[^@\\s]+@([a-zA-Z0-9-]+\\.)+nits\\.ac\\.in$",

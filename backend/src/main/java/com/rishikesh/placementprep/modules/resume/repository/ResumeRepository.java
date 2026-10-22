@@ -24,4 +24,7 @@ public interface ResumeRepository extends JpaRepository<Resume, Long> {
     Optional<Resume> findFirstByStatusOrderByUploadedAtAsc(ResumeStatus status);
 
     List<Resume> findByStatus(ResumeStatus status);
+
+    /** Whether any resume row still points at this stored file - the orphan sweep's check. */
+    boolean existsByStorageKey(String storageKey);
 }

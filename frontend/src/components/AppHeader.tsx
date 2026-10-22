@@ -2,6 +2,7 @@ import { Link, useNavigate } from "react-router-dom";
 
 import { logout } from "../api/auth";
 import { canManageDrives, isStudentRole } from "../api/roles";
+import NotificationBell from "./NotificationBell";
 import type { Role, UserProfile } from "../api/types";
 import { Icon, type IconName } from "./ui";
 
@@ -119,6 +120,8 @@ export default function AppHeader({ profile, active }: { profile: UserProfile | 
         </nav>
 
         <div className="ml-auto flex items-center gap-2">
+          {/* Notifications are written only for students, coordinators included. */}
+          {isStudent && <NotificationBell />}
           {profile && (
             <div className="hidden items-center gap-2 rounded-full bg-white/80 py-1 pr-3 pl-1 shadow-sm ring-1 ring-slate-200/70 sm:flex">
               <span

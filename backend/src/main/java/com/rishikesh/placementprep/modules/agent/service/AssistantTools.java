@@ -1,7 +1,6 @@
 package com.rishikesh.placementprep.modules.agent.service;
 
 import java.math.BigDecimal;
-import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.function.Function;
@@ -11,6 +10,7 @@ import org.springframework.ai.tool.annotation.Tool;
 import org.springframework.ai.tool.annotation.ToolParam;
 
 import com.rishikesh.placementprep.modules.application.dto.ApplicationDTO;
+import com.rishikesh.placementprep.modules.application.service.ApplicationRefusedException;
 import com.rishikesh.placementprep.modules.application.service.ApplicationService;
 import com.rishikesh.placementprep.modules.auth.dto.UserProfileDTO;
 import com.rishikesh.placementprep.modules.drive.dto.DriveDTO;
@@ -85,20 +85,19 @@ public class AssistantTools {
     @Tool(description = "Apply this student to one placement drive. Only call this when the student has clearly "
             + "asked to apply to that specific drive - never on your own initiative.")
     public String applyToDrive(@ToolParam(description = "The id of the drive to apply to") Long driveId) {
-        // 1. The drive has to exist and still be open - the same rule the Apply button follows
-        DriveDTO drive = driveService.findDriveById(driveId).orElse(null);
-        if (drive == null) {
-            return "There is no drive with id " + driveId + ".";
+        // Apply through the same service the Apply button uses, so every rule - the drive
+        // exists, not already applied, still open, profile complete, eligible - is the same
+        // one. A refusal is returned as text rather than thrown, so the model can tell the
+        // student exactly why in its own words.
+        try {
+            ApplicationDTO application = applicationService.apply(student, driveId);
+            String drive = driveService.findDriveById(driveId)
+                    .map(found -> found.companyName() + " - " + found.role())
+                    .orElse("drive " + driveId);
+            return "Applied to " + drive + ". The application is now " + application.status() + ".";
+        } catch (ApplicationRefusedException refused) {
+            return "Could not apply: " + refused.getMessage() + ".";
         }
-        if (drive.applicationDeadline() != null && drive.applicationDeadline().isBefore(Instant.now())) {
-            return "Applications for " + drive.companyName() + " closed on " + drive.applicationDeadline() + ".";
-        }
-
-        // 2. Apply through the same service the Apply button uses
-        return applicationService.apply(student.id(), driveId)
-                .map(application -> "Applied to " + drive.companyName() + " - " + drive.role()
-                        + ". The application is now " + application.status() + ".")
-                .orElse("The student has already applied to " + drive.companyName() + ".");
     }
 
     @Tool(description = "Search the uploaded job-description PDFs by meaning, not exact words - for example "

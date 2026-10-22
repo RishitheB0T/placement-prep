@@ -1,5 +1,7 @@
 package com.rishikesh.placementprep.modules.resume.service;
 
+import java.time.Duration;
+import java.time.Instant;
 import java.util.Optional;
 
 import org.slf4j.Logger;
@@ -32,6 +34,9 @@ import com.rishikesh.placementprep.modules.resume.service.ResumeService.ReviewTa
 public class ResumeReviewJob {
 
     private static final Logger log = LoggerFactory.getLogger(ResumeReviewJob.class);
+
+    /** How old an unreferenced file must be before the sweep deletes it. */
+    static final Duration ORPHAN_GRACE = Duration.ofHours(1);
 
     static final String NOT_CONFIGURED =
             "AI feedback is not switched on for this server yet. Your resume is saved - try again once it is.";
@@ -119,5 +124,24 @@ public class ResumeReviewJob {
             resumeService.failReview(task.resumeId(), REVIEW_FAILED);
         }
         return true;
+    }
+
+    /**
+     * Deletes stored PDFs whose resume row is gone - left behind when a drive is deleted,
+     * since the database cascade removes rows but cannot remove files. Every
+     * resume.cleanup.poll-delay (six hours by default); a file must be an hour old before
+     * it counts, so an upload still in progress is never touched.
+     */
+    @Scheduled(initialDelayString = "${resume.cleanup.initial-delay:PT10M}",
+               fixedDelayString = "${resume.cleanup.poll-delay:PT6H}")
+    public void deleteOrphanedFiles() {
+        try {
+            int deleted = resumeService.deleteOrphanedFiles(Instant.now().minus(ORPHAN_GRACE));
+            if (deleted > 0) {
+                log.info("Deleted {} stored resume file(s) whose resume no longer exists", deleted);
+            }
+        } catch (RuntimeException e) {
+            log.warn("Could not sweep orphaned resume files", e);
+        }
     }
 }

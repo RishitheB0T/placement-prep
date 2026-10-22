@@ -1,7 +1,7 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { useNavigate } from "react-router-dom";
 
-import { fetchMyProfile, updateMyProfile, updateMyStaffProfile } from "../api/auth";
+import { changeMyPassword, fetchMyProfile, updateMyProfile, updateMyStaffProfile } from "../api/auth";
 import { isStudentRole } from "../api/roles";
 import { ApiError } from "../api/client";
 import type { Role, UserProfile } from "../api/types";
@@ -100,6 +100,7 @@ export default function Profile() {
                 ) : (
                   <StudentProfileForm profile={profile} />
                 )}
+                <ChangePasswordForm />
               </div>
             </div>
           </>
@@ -288,6 +289,75 @@ interface StaffFormState {
  * no "complete" gate here, unlike the student form, because nothing else in the system
  * depends on these being filled in.
  */
+/**
+ * Changing your own password - every role gets this, recruiters especially, since the
+ * admin sets their first one. The current password is asked for again so a browser left
+ * signed in is not enough to lock the owner out.
+ */
+function ChangePasswordForm() {
+  const [current, setCurrent] = useState("");
+  const [next, setNext] = useState("");
+  const [confirm, setConfirm] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [message, setMessage] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+
+  async function handleSubmit(event: FormEvent) {
+    event.preventDefault();
+    setError(null);
+    setMessage(null);
+    // Checked here for a quick answer; the backend checks the length again regardless.
+    if (next.length < 8) {
+      setError("The new password needs at least 8 characters.");
+      return;
+    }
+    if (next !== confirm) {
+      setError("The two new passwords do not match.");
+      return;
+    }
+    setSaving(true);
+    try {
+      await changeMyPassword(current, next);
+      setCurrent("");
+      setNext("");
+      setConfirm("");
+      setMessage("Password changed. Use the new one next time you sign in.");
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : "Could not change your password");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <form onSubmit={handleSubmit} className="card animate-fade-up mt-6 p-6 [animation-delay:120ms] sm:p-8">
+      <h2 className="flex items-center gap-2 text-lg font-bold text-slate-900">
+        <Icon name="lock" className="size-5 text-violet-500" />
+        Change password
+      </h2>
+
+      {error && (
+        <p role="alert" className="alert-error animate-pop mt-4">
+          {error}
+        </p>
+      )}
+      {message && <p className="alert-success animate-pop mt-4">{message}</p>}
+
+      <div className="mt-5 grid gap-5 sm:grid-cols-3">
+        <Field label="Current password" value={current} onChange={setCurrent} type="password" />
+        <Field label="New password" value={next} onChange={setNext} type="password" hint="At least 8 characters" />
+        <Field label="Confirm new password" value={confirm} onChange={setConfirm} type="password" />
+      </div>
+
+      <div className="mt-6 flex justify-end">
+        <button type="submit" disabled={saving} className="btn btn-primary">
+          {saving ? "Saving..." : "Change password"}
+        </button>
+      </div>
+    </form>
+  );
+}
+
 function StaffProfileForm({ profile }: { profile: UserProfile }) {
   const navigate = useNavigate();
   const [error, setError] = useState<string | null>(null);

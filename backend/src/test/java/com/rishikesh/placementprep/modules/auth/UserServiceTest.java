@@ -86,6 +86,38 @@ class UserServiceTest {
     }
 
     @Test
+    void changingThePasswordWithTheRightCurrentOneStoresTheNewHash() {
+        User user = user(5L, Role.STUDENT);
+        user.setPasswordHash("old-hash");
+        when(userRepository.findByEmail("user5@cse.nits.ac.in")).thenReturn(Optional.of(user));
+        when(passwordEncoder.matches("old-password", "old-hash")).thenReturn(true);
+        when(passwordEncoder.encode("new-password")).thenReturn("new-hash");
+
+        assertThat(userService.changePassword("user5@cse.nits.ac.in", "old-password", "new-password")).isTrue();
+        assertThat(user.getPasswordHash()).isEqualTo("new-hash");
+    }
+
+    @Test
+    void aWrongCurrentPasswordChangesNothing() {
+        User user = user(5L, Role.STUDENT);
+        user.setPasswordHash("old-hash");
+        when(userRepository.findByEmail("user5@cse.nits.ac.in")).thenReturn(Optional.of(user));
+        when(passwordEncoder.matches("guess", "old-hash")).thenReturn(false);
+
+        assertThat(userService.changePassword("user5@cse.nits.ac.in", "guess", "new-password")).isFalse();
+        assertThat(user.getPasswordHash()).isEqualTo("old-hash");
+        verify(userRepository, never()).save(any());
+    }
+
+    @Test
+    void resettingAnUnknownAccountsPasswordReportsFalse() {
+        when(userRepository.findById(99L)).thenReturn(Optional.empty());
+
+        assertThat(userService.resetPassword(99L, "temporary-password")).isFalse();
+        verify(passwordEncoder, never()).encode(any());
+    }
+
+    @Test
     void listingOneRoleUsesTheRoleQuery() {
         when(userRepository.findByRoleOrderByEmailAsc(Role.STUDENT)).thenReturn(List.of(user(5L, Role.STUDENT)));
 

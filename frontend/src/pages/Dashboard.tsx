@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from "re
 import { useNavigate } from "react-router-dom";
 
 import { fetchApplicationStats, fetchMyApplications } from "../api/applications";
-import { createRecruiter, fetchMyProfile, fetchUsers, promoteToCoordinator } from "../api/auth";
+import { createRecruiter, fetchMyProfile, fetchUsers, promoteToCoordinator, resetPassword } from "../api/auth";
 import { ApiError } from "../api/client";
 import { fetchAllDrives, fetchEligibleDrives } from "../api/drives";
 import { fetchMyResumes } from "../api/resumes";
@@ -354,6 +354,24 @@ function People({
   const [error, setError] = useState<string | null>(null);
   const [recruiterEmail, setRecruiterEmail] = useState("");
   const [recruiterPassword, setRecruiterPassword] = useState("");
+  /** The account whose password is being reset, if any - one inline form at a time. */
+  const [resettingId, setResettingId] = useState<number | null>(null);
+  const [newPassword, setNewPassword] = useState("");
+
+  /** The "forgot password" path: the admin sets a temporary password and hands it over. */
+  async function submitReset(event: FormEvent, user: UserProfile) {
+    event.preventDefault();
+    setMessage(null);
+    setError(null);
+    try {
+      await resetPassword(user.id, newPassword);
+      setResettingId(null);
+      setNewPassword("");
+      setMessage(`${user.email} can now sign in with the new password. Ask them to change it on their Profile page.`);
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : "Could not reset the password");
+    }
+  }
 
   async function addRecruiter(event: FormEvent) {
     event.preventDefault();
@@ -387,7 +405,7 @@ function People({
     try {
       const updated = await promoteToCoordinator(user.id);
       onPromoted(updated);
-      setMessage(`${updated.email} is now a coordinator. They will see the coordinator pages after their next sign-in.`);
+      setMessage(`${updated.email} is now a coordinator. The coordinator pages appear the next time they open a page.`);
     } catch (e) {
       setError(e instanceof ApiError ? e.message : "Could not promote this account");
     }
@@ -473,7 +491,7 @@ function People({
       ) : (
         <ul className="mt-4 max-h-96 space-y-2 overflow-y-auto pr-1">
           {shown.map((user) => (
-            <li key={user.id} className="flex items-center gap-3 rounded-xl border border-slate-100 bg-white/80 px-3 py-2.5">
+            <li key={user.id} className="flex flex-wrap items-center gap-3 rounded-xl border border-slate-100 bg-white/80 px-3 py-2.5">
               <span
                 aria-hidden="true"
                 className="grid size-8 shrink-0 place-items-center rounded-lg bg-linear-to-br from-sky-400 to-violet-500 text-xs font-bold text-white"
@@ -491,6 +509,38 @@ function People({
                 <button onClick={() => void promote(user)} className="btn btn-sm btn-secondary">
                   Make coordinator
                 </button>
+              )}
+              <button
+                onClick={() => {
+                  setResettingId(resettingId === user.id ? null : user.id);
+                  setNewPassword("");
+                }}
+                aria-label={`Reset password for ${user.email}`}
+                className="btn btn-sm btn-ghost"
+              >
+                <Icon name="lock" />
+              </button>
+              {resettingId === user.id && (
+                <form onSubmit={(e) => void submitReset(e, user)} className="flex w-full flex-wrap gap-2">
+                  <label className="sr-only" htmlFor={`reset-${user.id}`}>
+                    New password for {user.email}
+                  </label>
+                  <input
+                    id={`reset-${user.id}`}
+                    type="password"
+                    required
+                    minLength={8}
+                    maxLength={72}
+                    value={newPassword}
+                    onChange={(e) => setNewPassword(e.target.value)}
+                    placeholder="New temporary password"
+                    autoComplete="new-password"
+                    className="input mt-0 min-w-0 flex-1"
+                  />
+                  <button type="submit" className="btn btn-sm btn-primary">
+                    Set password
+                  </button>
+                </form>
               )}
             </li>
           ))}

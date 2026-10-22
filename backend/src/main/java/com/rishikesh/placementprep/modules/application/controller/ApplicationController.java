@@ -24,6 +24,7 @@ import com.rishikesh.placementprep.modules.application.dto.ApplicationDTO;
 import com.rishikesh.placementprep.modules.application.dto.ApplicationStatsDTO;
 import com.rishikesh.placementprep.modules.application.dto.ApplyRequest;
 import com.rishikesh.placementprep.modules.application.dto.UpdateStatusRequest;
+import com.rishikesh.placementprep.modules.application.service.ApplicationRefusedException;
 import com.rishikesh.placementprep.modules.application.service.ApplicationService;
 import com.rishikesh.placementprep.modules.auth.dto.UserProfileDTO;
 import com.rishikesh.placementprep.modules.auth.service.UserService;
@@ -55,12 +56,20 @@ public class ApplicationController {
         this.driveService = driveService;
     }
 
+    /**
+     * A student applying. Every rule - drive exists, not already applied, still open,
+     * profile complete, eligible - is checked in ApplicationService, the same place the
+     * assistant's applyToDrive tool goes through.
+     */
     @PostMapping
     public ResponseEntity<ApplicationDTO> apply(@AuthenticationPrincipal UserDetails principal,
                                                 @Valid @RequestBody ApplyRequest request) {
-        ApplicationDTO created = applicationService.apply(callerId(principal), request.driveId())
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.CONFLICT,
-                        "You have already applied to this drive"));
+        ApplicationDTO created;
+        try {
+            created = applicationService.apply(caller(principal), request.driveId());
+        } catch (ApplicationRefusedException refused) {
+            throw asHttp(refused);
+        }
 
         return ResponseEntity.created(URI.create("/api/applications/" + created.id())).body(created);
     }
@@ -124,7 +133,11 @@ public class ApplicationController {
                 .filter(application -> driveService.findDriveById(application.driveId(), scope).isPresent())
                 .orElseThrow(() -> notFound);
 
-        return applicationService.updateStatus(existing.id(), request).orElseThrow(() -> notFound);
+        try {
+            return applicationService.updateStatus(existing.id(), request).orElseThrow(() -> notFound);
+        } catch (ApplicationRefusedException refused) {
+            throw asHttp(refused);
+        }
     }
 
     /**
@@ -137,9 +150,26 @@ public class ApplicationController {
     @PostMapping("/{id}/withdraw")
     public ApplicationDTO withdraw(@PathVariable Long id,
                                    @AuthenticationPrincipal UserDetails principal) {
-        return applicationService.withdraw(id, callerId(principal))
-                .orElseThrow(() -> new ResponseStatusException(
-                        HttpStatus.NOT_FOUND, "No application of yours with id " + id));
+        try {
+            return applicationService.withdraw(id, callerId(principal))
+                    .orElseThrow(() -> new ResponseStatusException(
+                            HttpStatus.NOT_FOUND, "No application of yours with id " + id));
+        } catch (ApplicationRefusedException refused) {
+            throw asHttp(refused);
+        }
+    }
+
+    /**
+     * Turns a refused application rule into its HTTP answer: a drive that does not exist
+     * is 404, and every other refusal is 409 - the request was well formed, but the
+     * current state (closed, already applied, not eligible...) does not allow it. The
+     * service's message goes back to the caller as the problem detail.
+     */
+    private ResponseStatusException asHttp(ApplicationRefusedException refused) {
+        HttpStatus status = refused.getReason() == ApplicationRefusedException.Reason.NO_SUCH_DRIVE
+                ? HttpStatus.NOT_FOUND
+                : HttpStatus.CONFLICT;
+        return new ResponseStatusException(status, refused.getMessage());
     }
 
     /** Resolves the signed-in account's numeric id from the email a verified token carries. */

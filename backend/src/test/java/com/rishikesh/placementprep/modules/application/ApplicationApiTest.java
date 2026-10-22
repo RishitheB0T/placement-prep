@@ -409,6 +409,127 @@ class ApplicationApiTest {
     }
 
     /**
+     * Withdrawing a rejection would let a re-application reopen it as APPLIED, undoing the
+     * decision - so a decided application cannot be withdrawn.
+     */
+    @Test
+    void aDecidedApplicationCannotBeWithdrawn() throws Exception {
+        Application rejected = seedApplication(studentId, driveId, ApplicationStatus.REJECTED);
+
+        mockMvc.perform(post("/api/applications/" + rejected.getId() + "/withdraw")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(studentToken)))
+                .andExpect(status().isConflict());
+
+        assertThat(applicationRepository.findById(rejected.getId()).orElseThrow().getStatus())
+                .isEqualTo(ApplicationStatus.REJECTED);
+    }
+
+    // ------------------------------------------------------------ Apply rules
+
+    @Test
+    void applyingToADriveThatDoesNotExistIs404() throws Exception {
+        mockMvc.perform(post("/api/applications").header(HttpHeaders.AUTHORIZATION, bearer(studentToken))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(applyJson(999_999L)))
+                .andExpect(status().isNotFound());
+    }
+
+    @Test
+    void applyingAfterTheDeadlineIs409() throws Exception {
+        Drive closed = seedDrive("Closed Co");
+        closed.setApplicationDeadline(Instant.now().minus(1, ChronoUnit.DAYS));
+        driveRepository.save(closed);
+
+        mockMvc.perform(post("/api/applications").header(HttpHeaders.AUTHORIZATION, bearer(studentToken))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(applyJson(closed.getId())))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.detail").value(org.hamcrest.Matchers.containsString("closed")));
+        assertThat(applicationRepository.count()).isZero();
+    }
+
+    /** The API enforces eligibility; hiding the Apply button is not the only guard. */
+    @Test
+    void applyingToADriveTheStudentIsNotEligibleForIs409() throws Exception {
+        Drive strict = seedDrive("Strict Co");
+        strict.setCgpaCutoff(new BigDecimal("9.5"));
+        driveRepository.save(strict);
+
+        mockMvc.perform(post("/api/applications").header(HttpHeaders.AUTHORIZATION, bearer(studentToken))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(applyJson(strict.getId())))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.detail").value(org.hamcrest.Matchers.containsString("eligibility")));
+        assertThat(applicationRepository.count()).isZero();
+    }
+
+    @Test
+    void applyingWithAnIncompleteProfileIs409() throws Exception {
+        User blank = createUser("blank@cse.nits.ac.in", Role.STUDENT);
+        blank.setCgpa(null);
+        userRepository.save(blank);
+        String blankToken = jwtService.generateToken("blank@cse.nits.ac.in", Role.STUDENT);
+
+        mockMvc.perform(post("/api/applications").header(HttpHeaders.AUTHORIZATION, bearer(blankToken))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(applyJson(driveId)))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.detail").value(org.hamcrest.Matchers.containsString("profile")));
+    }
+
+    // ---------------------------------------------------------- Status rules
+
+    /** WITHDRAWN is the student's decision, made through /withdraw - never the hiring side's. */
+    @Test
+    void theHiringSideCannotSetWithdrawn() throws Exception {
+        Application application = seedApplication(studentId, driveId, ApplicationStatus.APPLIED);
+
+        mockMvc.perform(patch("/api/applications/" + application.getId() + "/status")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(picToken))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"status":"WITHDRAWN"}
+                                """))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    void aWithdrawnApplicationCannotBeDecided() throws Exception {
+        Application withdrawn = seedApplication(studentId, driveId, ApplicationStatus.WITHDRAWN);
+
+        mockMvc.perform(patch("/api/applications/" + withdrawn.getId() + "/status")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(picToken))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"status":"SHORTLISTED"}
+                                """))
+                .andExpect(status().isConflict());
+
+        assertThat(applicationRepository.findById(withdrawn.getId()).orElseThrow().getStatus())
+                .isEqualTo(ApplicationStatus.WITHDRAWN);
+    }
+
+    /** Shortlisting someone puts a message in their notification bell. */
+    @Test
+    void aStatusChangeNotifiesTheStudent() throws Exception {
+        Application application = seedApplication(studentId, driveId, ApplicationStatus.APPLIED);
+
+        mockMvc.perform(patch("/api/applications/" + application.getId() + "/status")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(picToken))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"status":"SHORTLISTED"}
+                                """))
+                .andExpect(status().isOk());
+
+        mockMvc.perform(get("/api/notifications/me").header(HttpHeaders.AUTHORIZATION, bearer(studentToken)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].kind").value("STATUS_CHANGED"))
+                .andExpect(jsonPath("$[0].message").value(org.hamcrest.Matchers.containsString("shortlisted for Zoho")))
+                .andExpect(jsonPath("$[0].read").value(false));
+    }
+
+    /**
      * The core of the ownership guard: withdraw is keyed by student id as well as
      * application id, so guessing another student's application id must not work.
      */
@@ -430,12 +551,23 @@ class ApplicationApiTest {
         return "Bearer " + token;
     }
 
+    /**
+     * Student accounts get a complete profile that qualifies for the seeded drive (CSE,
+     * CGPA 8.5 against a 7.5 cutoff, no backlogs) - applying checks eligibility, so a
+     * student without marks could not apply to anything.
+     */
     private User createUser(String email, Role role) {
         User user = new User();
         user.setEmail(email);
         user.setPasswordHash(passwordEncoder.encode("correct-horse-battery"));
         user.setRole(role);
         user.setBacklogs(0);
+        if (role == Role.STUDENT || role == Role.TNP_COORDINATOR) {
+            user.setCgpa(new BigDecimal("8.50"));
+            user.setBranch("CSE");
+            user.setTenthPercentage(new BigDecimal("90"));
+            user.setTwelfthPercentage(new BigDecimal("88"));
+        }
         return userRepository.save(user);
     }
 

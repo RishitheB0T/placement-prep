@@ -123,6 +123,25 @@ export interface Application {
 }
 
 /**
+ * What a notification is about: a new drive the student is eligible for, a deadline 3
+ * days or 1 day away on a drive they have not applied to, or a change to one of their
+ * applications.
+ */
+export type NotificationKind = "NEW_DRIVE" | "DEADLINE_3_DAYS" | "DEADLINE_1_DAY" | "STATUS_CHANGED";
+
+/** Returned by /api/notifications/me - one entry in the student's bell. */
+export interface Notification {
+  id: number;
+  kind: NotificationKind;
+  /** Written in full by the backend, ready to show. */
+  message: string;
+  /** The drive it is about, or null. */
+  driveId: number | null;
+  createdAt: string;
+  read: boolean;
+}
+
+/**
  * Where a resume's review has got to. Uploading creates PENDING; the backend's background
  * job moves it through PROCESSING to COMPLETED or FAILED, and only FAILED can be retried.
  */

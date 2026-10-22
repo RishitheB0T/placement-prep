@@ -102,6 +102,12 @@ public class SecurityConfig {
                     // college addresses only.
                     .requestMatchers(HttpMethod.POST, "/api/users/recruiters").hasRole("TNP_PIC")
 
+                    // Setting someone else's password - the "forgot password" path, since
+                    // there is no email reset. The person in charge's alone. Changing your
+                    // OWN password (PUT /api/users/me/password) needs only an account, so
+                    // it falls through to the default rule at the bottom.
+                    .requestMatchers(HttpMethod.POST, "/api/users/*/password").hasRole("TNP_PIC")
+
                     // CGPA, branch and marks belong to students. A recruiter or the person
                     // in charge has none to fill in. Reading /api/users/me stays open to all.
                     .requestMatchers(HttpMethod.PUT, "/api/users/me").hasAnyRole(STUDENTS)
@@ -134,6 +140,10 @@ public class SecurityConfig {
                     // The assistant's tools all act as a student - eligible drives, my
                     // applications, apply - so it follows the same rule as resumes.
                     .requestMatchers("/api/agent/**").hasAnyRole(STUDENTS)
+
+                    // Notifications are written only for students - new drives, deadline
+                    // reminders, status changes - so only students can read them.
+                    .requestMatchers("/api/notifications", "/api/notifications/**").hasAnyRole(STUDENTS)
 
                     // Searching job descriptions spans every company's drives. A
                     // recruiter sees only their own drives, so this is closed to them.

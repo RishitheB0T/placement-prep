@@ -34,6 +34,39 @@ describe("Drives", () => {
       vi.mocked(authApi.fetchMyProfile).mockResolvedValue(student());
     });
 
+    /** "All drives" offers Apply only where the backend would accept it. */
+    it("sees 'Not eligible' instead of Apply on a drive they do not qualify for", async () => {
+      vi.mocked(drivesApi.fetchEligibleDrives).mockResolvedValue([]);
+
+      renderPage(<Drives />);
+      await userEvent.click(await screen.findByRole("button", { name: "All drives" }));
+
+      expect(await screen.findByText("Not eligible")).toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: "Apply" })).not.toBeInTheDocument();
+    });
+
+    it("is sent to the profile, not offered Apply, while their marks are missing", async () => {
+      vi.mocked(authApi.fetchMyProfile).mockResolvedValue(student({ cgpa: null, complete: false }));
+
+      renderPage(<Drives />);
+      await userEvent.click(await screen.findByRole("button", { name: "All drives" }));
+
+      expect(await screen.findByRole("button", { name: "Complete profile to apply" })).toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: "Apply" })).not.toBeInTheDocument();
+    });
+
+    it("can search the board by company", async () => {
+      const both = [drive(), drive({ id: 11, companyName: "Infosys" })];
+      vi.mocked(drivesApi.fetchEligibleDrives).mockResolvedValue(both);
+
+      renderPage(<Drives />);
+      expect(await screen.findByText("Zoho")).toBeInTheDocument();
+      await userEvent.type(screen.getByLabelText("Search drives"), "infos");
+
+      expect(screen.getByText("Infosys")).toBeInTheDocument();
+      expect(screen.queryByText("Zoho")).not.toBeInTheDocument();
+    });
+
     it("can apply, and sees the eligibility tabs", async () => {
       renderPage(<Drives />);
 

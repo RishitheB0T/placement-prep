@@ -131,6 +131,41 @@ public class UserService {
     }
 
     /**
+     * Changes the signed-in account's own password, after checking the current one.
+     *
+     * @return false when the current password is wrong (or the account no longer exists);
+     *         nothing is changed in that case
+     */
+    @Transactional
+    public boolean changePassword(String email, String currentPassword, String newPassword) {
+        return userRepository.findByEmail(email)
+                .filter(user -> passwordEncoder.matches(currentPassword, user.getPasswordHash()))
+                .map(user -> {
+                    user.setPasswordHash(passwordEncoder.encode(newPassword));
+                    userRepository.save(user);
+                    return true;
+                })
+                .orElse(false);
+    }
+
+    /**
+     * Sets a new password on any account - the person in charge's answer to "I forgot my
+     * password". The endpoint using it is restricted to the person in charge.
+     *
+     * @return false when no account has that id
+     */
+    @Transactional
+    public boolean resetPassword(Long id, String newPassword) {
+        return userRepository.findById(id)
+                .map(user -> {
+                    user.setPasswordHash(passwordEncoder.encode(newPassword));
+                    userRepository.save(user);
+                    return true;
+                })
+                .orElse(false);
+    }
+
+    /**
      * Replaces the academic details of an existing user.
      *
      * @return empty when no user has that email, which in practice means the account was

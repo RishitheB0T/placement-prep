@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 
 import {
@@ -52,43 +52,36 @@ export default function Applications() {
   /** Only a coordinator is both, so only a coordinator needs the switch. */
   const showTabs = canManage && isStudent;
 
-  const load = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const [me, allDrives] = await Promise.all([fetchMyProfile(), fetchAllDrives()]);
-      setProfile(me);
-      setDrives(allDrives);
-
-      // Arriving from a dashboard's "Review applicants" button, as ?driveId=12: a
-      // coordinator, recruiter or admin opens straight onto that drive's applicants.
-      if (requestedDrive !== null && canManageDrives(me.role)) {
-        setView("applicants");
-        setSelectedDrive(requestedDrive);
-        setApplications(await fetchApplicationsForDrive(requestedDrive));
-        return;
-      }
-
-      const student = isStudentRole(me.role);
-      // A recruiter or the PIC has no applications of their own, so they open straight into review.
-      setView(student ? "mine" : "applicants");
-      if (student) {
-        setApplications(await fetchMyApplications());
-      }
-    } catch (e) {
-      if (e instanceof ApiError && e.status === 401) {
-        navigate("/login", { replace: true });
-        return;
-      }
-      setError(e instanceof ApiError ? e.message : "Could not reach the server");
-    } finally {
-      setLoading(false);
-    }
-  }, [navigate, requestedDrive]);
-
+  // Loads the page once (and again if ?driveId changes). Every setState happens in the
+  // promise callbacks, after the data arrives - never synchronously inside the effect -
+  // and `cancelled` drops a response that arrives after the page has moved on.
   useEffect(() => {
-    void load();
-  }, [load]);
+    let cancelled = false;
+    loadPage(requestedDrive)
+      .then((page) => {
+        if (cancelled) return;
+        setError(null);
+        setProfile(page.profile);
+        setDrives(page.drives);
+        setView(page.view);
+        setSelectedDrive(page.selectedDrive);
+        setApplications(page.applications);
+      })
+      .catch((e) => {
+        if (cancelled) return;
+        if (e instanceof ApiError && e.status === 401) {
+          navigate("/login", { replace: true });
+          return;
+        }
+        setError(e instanceof ApiError ? e.message : "Could not reach the server");
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [navigate, requestedDrive]);
 
   /** Switching views swaps which list `applications` holds, so it has to refetch. */
   async function switchView(next: View) {
@@ -123,6 +116,30 @@ export default function Applications() {
     } catch (e) {
       setError(e instanceof ApiError ? e.message : "Could not update the status");
     }
+  }
+
+  /**
+   * Downloads the applicants on screen as a CSV file, built in the browser from the list
+   * already loaded - no extra request, and no library: CSV is plain text.
+   */
+  function downloadCsv() {
+    const drive = selectedDrive === null ? undefined : driveOf(selectedDrive);
+    const rows = [
+      ["Student email", "Status", "Applied on", "Note"],
+      ...applications.map((a) => [
+        a.studentEmail ?? `Student #${a.studentId}`,
+        a.status.toLowerCase(),
+        new Date(a.appliedAt).toLocaleDateString("en-IN"),
+        a.note ?? "",
+      ]),
+    ];
+    const blob = new Blob([toCsv(rows)], { type: "text/csv;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `${(drive?.companyName ?? "drive").replace(/[^a-z0-9]+/gi, "-")}-applicants.csv`;
+    link.click();
+    URL.revokeObjectURL(url);
   }
 
   async function withdraw(id: number) {
@@ -193,6 +210,12 @@ export default function Applications() {
                 ))}
               </select>
             </label>
+            {selectedDrive !== null && applications.length > 0 && (
+              <button type="button" onClick={downloadCsv} className="btn btn-secondary sm:self-end">
+                <Icon name="download" />
+                Download CSV
+              </button>
+            )}
           </div>
         )}
 
@@ -290,7 +313,10 @@ export default function Applications() {
                         </p>
                       )}
 
-                      {view === "applicants" ? (
+                      {view === "applicants" && application.status === "WITHDRAWN" ? (
+                        // The student pulled out; the backend refuses to decide it (409).
+                        <p className="mt-4 text-sm text-slate-500">Withdrawn by the student.</p>
+                      ) : view === "applicants" ? (
                         <div className="mt-4 flex flex-wrap gap-2">
                           {STATUSES.filter((s) => s !== "WITHDRAWN" && s !== application.status).map((status) => (
                             <button
@@ -303,7 +329,10 @@ export default function Applications() {
                           ))}
                         </div>
                       ) : (
-                        application.status !== "WITHDRAWN" && (
+                        // Only while still under review: a decided application cannot be
+                        // withdrawn (the backend answers 409), or a rejection could be undone
+                        // by withdrawing and applying again.
+                        (application.status === "APPLIED" || application.status === "SHORTLISTED") && (
                           <button
                             onClick={() => void withdraw(application.id)}
                             className="btn btn-sm btn-secondary mt-4"
@@ -322,6 +351,55 @@ export default function Applications() {
       </main>
     </>
   );
+}
+
+/** What the page opens on, fetched in one go. */
+interface Page {
+  profile: UserProfile;
+  drives: Drive[];
+  view: View;
+  selectedDrive: number | null;
+  applications: Application[];
+}
+
+/**
+ * Fetches what the page opens on. Returns data and sets no state, so the effect calling
+ * it can ignore a result that arrives too late.
+ */
+async function loadPage(requestedDrive: number | null): Promise<Page> {
+  const [me, allDrives] = await Promise.all([fetchMyProfile(), fetchAllDrives()]);
+
+  // Arriving from a dashboard's "Review applicants" button, as ?driveId=12: a
+  // coordinator, recruiter or admin opens straight onto that drive's applicants.
+  if (requestedDrive !== null && canManageDrives(me.role)) {
+    return {
+      profile: me,
+      drives: allDrives,
+      view: "applicants",
+      selectedDrive: requestedDrive,
+      applications: await fetchApplicationsForDrive(requestedDrive),
+    };
+  }
+
+  // A recruiter or the PIC has no applications of their own, so they open straight into review.
+  const student = isStudentRole(me.role);
+  return {
+    profile: me,
+    drives: allDrives,
+    view: student ? "mine" : "applicants",
+    selectedDrive: null,
+    applications: student ? await fetchMyApplications() : [],
+  };
+}
+
+/**
+ * Turns rows into CSV text. A value with a comma, quote or line break is wrapped in
+ * quotes, with any quote inside doubled - the rule spreadsheet programs expect. The
+ * leading byte-order mark makes Excel read the file as UTF-8.
+ */
+function toCsv(rows: string[][]): string {
+  const escape = (value: string) => (/[",\r\n]/.test(value) ? `"${value.replace(/"/g, '""')}"` : value);
+  return "﻿" + rows.map((row) => row.map(escape).join(",")).join("\r\n");
 }
 
 /** Same pill treatment as the tabs on the drives board, for consistency. */

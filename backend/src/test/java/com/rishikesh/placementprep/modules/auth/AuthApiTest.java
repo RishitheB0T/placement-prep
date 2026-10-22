@@ -746,6 +746,161 @@ class AuthApiTest {
                 .andExpect(status().isForbidden());
     }
 
+    // ------------------------------------------------------------ Token refresh
+
+    /** After a promotion, a refreshed token carries the new role - no sign-out needed. */
+    @Test
+    void refreshingIssuesATokenWithTheCurrentRole() throws Exception {
+        String staleToken = tokenFor("student@cse.nits.ac.in", Role.STUDENT);
+        User promoted = userRepository.findByEmail("student@cse.nits.ac.in").orElseThrow();
+        promoted.setRole(Role.TNP_COORDINATOR);
+        userRepository.save(promoted);
+
+        mockMvc.perform(post("/api/auth/refresh").header(HttpHeaders.AUTHORIZATION, "Bearer " + staleToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.role").value("TNP_COORDINATOR"))
+                .andExpect(jsonPath("$.token").isNotEmpty());
+    }
+
+    @Test
+    void refreshingNeedsAToken() throws Exception {
+        mockMvc.perform(post("/api/auth/refresh")).andExpect(status().isUnauthorized());
+    }
+
+    // ---------------------------------------------------------------- Passwords
+
+    @Test
+    void anyAccountCanChangeItsOwnPassword() throws Exception {
+        String recruiter = tokenFor("hr@zoho.com", Role.RECRUITER);
+
+        mockMvc.perform(put("/api/users/me/password")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + recruiter)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"currentPassword":"correct-horse-battery","newPassword":"a-brand-new-one"}
+                                """))
+                .andExpect(status().isNoContent());
+
+        mockMvc.perform(post("/api/auth/login").contentType(MediaType.APPLICATION_JSON)
+                        .content(credentials("hr@zoho.com", "a-brand-new-one")))
+                .andExpect(status().isOk());
+        mockMvc.perform(post("/api/auth/login").contentType(MediaType.APPLICATION_JSON)
+                        .content(credentials("hr@zoho.com", "correct-horse-battery")))
+                .andExpect(status().isUnauthorized());
+    }
+
+    /** A token left in an unattended browser is not enough to change the password. */
+    @Test
+    void aWrongCurrentPasswordIs400AndChangesNothing() throws Exception {
+        String student = tokenFor("student@cse.nits.ac.in", Role.STUDENT);
+
+        mockMvc.perform(put("/api/users/me/password")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + student)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"currentPassword":"a-wrong-guess","newPassword":"a-brand-new-one"}
+                                """))
+                .andExpect(status().isBadRequest());
+
+        mockMvc.perform(post("/api/auth/login").contentType(MediaType.APPLICATION_JSON)
+                        .content(credentials("student@cse.nits.ac.in", "correct-horse-battery")))
+                .andExpect(status().isOk());
+    }
+
+    @Test
+    void aNewPasswordShorterThanEightCharactersIs400() throws Exception {
+        String student = tokenFor("student@cse.nits.ac.in", Role.STUDENT);
+
+        mockMvc.perform(put("/api/users/me/password")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + student)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"currentPassword":"correct-horse-battery","newPassword":"short"}
+                                """))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.errors.newPassword").exists());
+    }
+
+    /** The "forgot password" path: the admin sets a temporary one for the owner. */
+    @Test
+    void theAdminCanResetSomeonesPassword() throws Exception {
+        String admin = tokenFor("pic@tnp.nits.ac.in", Role.TNP_PIC);
+        Long studentId = idOf("student@cse.nits.ac.in", Role.STUDENT);
+
+        mockMvc.perform(post("/api/users/" + studentId + "/password")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + admin)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"newPassword":"temporary-pass-1"}
+                                """))
+                .andExpect(status().isNoContent());
+
+        mockMvc.perform(post("/api/auth/login").contentType(MediaType.APPLICATION_JSON)
+                        .content(credentials("student@cse.nits.ac.in", "temporary-pass-1")))
+                .andExpect(status().isOk());
+    }
+
+    @Test
+    void onlyTheAdminCanResetAPasswordAndAnUnknownAccountIs404() throws Exception {
+        String coordinator = tokenFor("coordinator@tnp.nits.ac.in", Role.TNP_COORDINATOR);
+        String admin = tokenFor("pic@tnp.nits.ac.in", Role.TNP_PIC);
+        Long studentId = idOf("student@cse.nits.ac.in", Role.STUDENT);
+        String body = """
+                {"newPassword":"temporary-pass-1"}
+                """;
+
+        mockMvc.perform(post("/api/users/" + studentId + "/password")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + coordinator)
+                        .contentType(MediaType.APPLICATION_JSON).content(body))
+                .andExpect(status().isForbidden());
+        mockMvc.perform(post("/api/users/999999/password")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + admin)
+                        .contentType(MediaType.APPLICATION_JSON).content(body))
+                .andExpect(status().isNotFound());
+    }
+
+    // -------------------------------------------------------- Input limits
+
+    /** Values the database cannot hold are a clean 400 naming the field, not a 500. */
+    @Test
+    void aDriveWithAnOutOfRangeTierOrCgpaCutoffIs400() throws Exception {
+        String admin = tokenFor("pic@tnp.nits.ac.in", Role.TNP_PIC);
+
+        mockMvc.perform(post("/api/drives")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + admin)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(driveJson().replace("\"tier\":1", "\"tier\":7")
+                                .replace("\"cgpaCutoff\":7.5", "\"cgpaCutoff\":15")))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.errors.tier").exists())
+                .andExpect(jsonPath("$.errors.cgpaCutoff").exists());
+        assertThat(driveRepository.count()).isZero();
+    }
+
+    @Test
+    void aCompanyNameLongerThanTheColumnIs400() throws Exception {
+        String admin = tokenFor("pic@tnp.nits.ac.in", Role.TNP_PIC);
+
+        mockMvc.perform(post("/api/drives")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + admin)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(driveJson().replace("\"Zoho\"", "\"" + "Z".repeat(300) + "\"")))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.errors.companyName").exists());
+    }
+
+    @Test
+    void aBranchLongerThanTheColumnIs400() throws Exception {
+        String student = tokenFor("student@cse.nits.ac.in", Role.STUDENT);
+
+        mockMvc.perform(put("/api/users/me")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + student)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(profileJson("8.0", "B".repeat(40), "90", "90", 0)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.errors.branch").exists());
+    }
+
     // ----------------------------------------------------------------- Helpers
 
     private String credentials(String email, String password) {

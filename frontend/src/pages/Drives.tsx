@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 
 import { applyToDrive, fetchMyApplications } from "../api/applications";
@@ -40,6 +40,14 @@ export default function Drives() {
    * change what they say.
    */
   const [now, setNow] = useState(() => Date.now());
+  /**
+   * The drives this student qualifies for, so the "All drives" tab can show Apply only
+   * where the backend would accept it. Null when it cannot be known - the profile is
+   * incomplete, or the account is not a student.
+   */
+  const [eligibleIds, setEligibleIds] = useState<Set<number> | null>(null);
+  /** Filters the loaded list by company, role or branch. Purely client-side. */
+  const [query, setQuery] = useState("");
 
   // Two independent questions, not one. A coordinator IS a student - one who has been
   // given the run of the board - so they answer yes to both: they apply to drives like
@@ -48,67 +56,48 @@ export default function Drives() {
   const canManage = canManageDrives(profile?.role);
   const isStudent = isStudentRole(profile?.role);
 
-  // useCallback so the effect below does not re-run on every render.
-  const load = useCallback(
-    async (which: Tab) => {
-      setLoading(true);
-      setError(null);
-      setNeedsProfile(false);
-
-      try {
-        // Sequential rather than Promise.all: which endpoint to call next depends on the
-        // role that only the first response reveals, so there is nothing to parallelise.
-        const me = await fetchMyProfile();
-        setProfile(me);
-
-        // "Eligible for me" is a student concept, and a coordinator is a student, so they
-        // get it too. A recruiter and the PIC are excluded: they hold no CGPA or branch,
-        // so /api/drives/eligible would answer 409 for them every time.
-        const student = isStudentRole(me.role);
-
-        // The profile we just loaded already says whether it is complete, so an
-        // incomplete one short-circuits here rather than making a request we know will
-        // be refused. The 409 branch below still exists for the race where the profile
-        // is emptied between these two calls - it is just no longer the normal path,
-        // which is what used to fill the console with red on every first visit.
-        if (student && which === "eligible" && !me.complete) {
-          setNeedsProfile(true);
-          setDrives([]);
-          setApplications(await fetchMyApplications());
-          return;
-        }
-
-        const [list, mine] = await Promise.all([
-          student && which === "eligible" ? fetchEligibleDrives() : fetchAllDrives(),
-          // The PIC has no applications of their own; asking would waste a request.
-          student ? fetchMyApplications() : Promise.resolve([] as Application[]),
-        ]);
-        setDrives(list);
-        setApplications(mine);
+  // Loads the board for the current tab. The fetching lives in loadBoard below and
+  // every setState happens in the promise callbacks, after the data arrives - never
+  // synchronously inside the effect. `cancelled` is set when the tab changes again
+  // before this request finishes, so a slow, older response can never overwrite the
+  // newer tab's list.
+  useEffect(() => {
+    let cancelled = false;
+    loadBoard(tab)
+      .then((board) => {
+        if (cancelled) return;
+        setProfile(board.profile);
+        setNeedsProfile(board.needsProfile);
+        setDrives(board.drives);
+        setApplications(board.applications);
+        setEligibleIds(board.eligibleIds);
         setNow(Date.now());
-      } catch (e) {
+      })
+      .catch((e) => {
+        if (cancelled) return;
         if (e instanceof ApiError && e.status === 401) {
           // The token is gone or expired. client.ts has already cleared it.
           navigate("/login", { replace: true });
           return;
         }
-        if (e instanceof ApiError && e.status === 409) {
-          // Not an error the user caused - they simply have not filled the form in.
-          setNeedsProfile(true);
-          setDrives([]);
-          return;
-        }
         setError(e instanceof ApiError ? e.message : "Could not reach the server");
-      } finally {
-        setLoading(false);
-      }
-    },
-    [navigate],
-  );
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [tab, navigate]);
 
-  useEffect(() => {
-    void load(tab);
-  }, [tab, load]);
+  /** Changing tab is what triggers a reload, so the reset happens here, in the event. */
+  function switchTab(next: Tab) {
+    if (next === tab) return;
+    setLoading(true);
+    setError(null);
+    setNeedsProfile(false);
+    setTab(next);
+  }
 
   async function handleDelete(drive: Drive) {
     if (!window.confirm(`Delete the ${drive.companyName} drive? This cannot be undone.`)) {
@@ -137,6 +126,14 @@ export default function Drives() {
   }
 
   const applicationFor = (driveId: number) => applications.find((a) => a.driveId === driveId);
+
+  const search = query.trim().toLowerCase();
+  const shown =
+    search === ""
+      ? drives
+      : drives.filter((d) =>
+          [d.companyName, d.role, ...d.eligibleBranches].some((value) => value.toLowerCase().includes(search)),
+        );
 
   // The summary row above the list, worked out from what is already loaded.
   const openDrives = drives.filter((d) => new Date(d.applicationDeadline).getTime() >= now);
@@ -195,12 +192,30 @@ export default function Drives() {
         */}
         {isStudent && (
           <div className="mt-8 inline-flex rounded-2xl bg-white/70 p-1 shadow-sm ring-1 ring-slate-200/70">
-            <TabButton active={tab === "eligible"} onClick={() => setTab("eligible")}>
+            <TabButton active={tab === "eligible"} onClick={() => switchTab("eligible")}>
               Eligible for me
             </TabButton>
-            <TabButton active={tab === "all"} onClick={() => setTab("all")}>
+            <TabButton active={tab === "all"} onClick={() => switchTab("all")}>
               All drives
             </TabButton>
+          </div>
+        )}
+
+        {!loading && drives.length > 0 && (
+          <div className="relative mt-6 max-w-md">
+            <span className="pointer-events-none absolute top-1/2 left-3.5 -translate-y-1/2 text-slate-400">
+              <Icon name="search" />
+            </span>
+            <label className="sr-only" htmlFor="drive-search">
+              Search drives
+            </label>
+            <input
+              id="drive-search"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="Search by company, role or branch"
+              className="input mt-0 pl-10"
+            />
           </div>
         )}
 
@@ -243,9 +258,13 @@ export default function Drives() {
             </EmptyState>
           )}
 
+          {!loading && drives.length > 0 && shown.length === 0 && (
+            <p className="text-sm text-slate-500">No drives match &ldquo;{query.trim()}&rdquo;.</p>
+          )}
+
           {!loading && (
             <ul className="grid gap-5 md:grid-cols-2">
-              {drives.map((drive, index) => (
+              {shown.map((drive, index) => (
                 <DriveCard
                   key={drive.id}
                   drive={drive}
@@ -254,6 +273,8 @@ export default function Drives() {
                   canManage={canManage}
                   isStudent={isStudent}
                   application={applicationFor(drive.id)}
+                  eligible={eligibleIds === null ? null : eligibleIds.has(drive.id)}
+                  onCompleteProfile={() => navigate("/profile")}
                   onDelete={() => void handleDelete(drive)}
                   onApply={() => void handleApply(drive)}
                   onEdit={() => navigate(`/drives/${drive.id}/edit`)}
@@ -266,6 +287,62 @@ export default function Drives() {
       </main>
     </>
   );
+}
+
+/** Everything one tab of the board shows, fetched in one go. */
+interface Board {
+  profile: UserProfile;
+  /** True when the profile is incomplete, so "Eligible for me" cannot be answered yet. */
+  needsProfile: boolean;
+  drives: Drive[];
+  applications: Application[];
+  /** Drives this student qualifies for; null when unknown (incomplete profile, or not a student). */
+  eligibleIds: Set<number> | null;
+}
+
+/**
+ * Fetches one tab of the board. A plain async function rather than a hook: it returns
+ * data and sets no state, so the effect that calls it decides what to do with the result
+ * - including throwing it away if the tab changed meanwhile.
+ */
+async function loadBoard(which: Tab): Promise<Board> {
+  // Sequential rather than all at once: which endpoint to call next depends on the role
+  // that only the profile reveals.
+  const me = await fetchMyProfile();
+
+  // "Eligible for me" is a student concept, and a coordinator is a student, so they get
+  // it too. A recruiter and the PIC are excluded: they hold no CGPA or branch, so
+  // /api/drives/eligible would answer 409 for them every time.
+  const student = isStudentRole(me.role);
+
+  // The profile already says whether it is complete, so an incomplete one short-circuits
+  // here rather than making a request we know will be refused.
+  if (student && which === "eligible" && !me.complete) {
+    return { profile: me, needsProfile: true, drives: [], applications: await fetchMyApplications(), eligibleIds: null };
+  }
+
+  try {
+    const [list, mine, eligibleOnAllTab] = await Promise.all([
+      student && which === "eligible" ? fetchEligibleDrives() : fetchAllDrives(),
+      // A recruiter and the PIC have no applications of their own; asking would waste a request.
+      student ? fetchMyApplications() : Promise.resolve([] as Application[]),
+      // On "All drives", also ask which ones they qualify for, so Apply appears only where
+      // the backend would accept it.
+      student && which === "all" && me.complete ? fetchEligibleDrives() : Promise.resolve(null),
+    ]);
+    const eligibleIds =
+      !student || !me.complete
+        ? null
+        : new Set((which === "eligible" ? list : (eligibleOnAllTab ?? [])).map((d) => d.id));
+    return { profile: me, needsProfile: false, drives: list, applications: mine, eligibleIds };
+  } catch (e) {
+    // The profile was emptied between the two calls - not an error the user caused, they
+    // simply have not filled the form in.
+    if (e instanceof ApiError && e.status === 409) {
+      return { profile: me, needsProfile: true, drives: [], applications: [], eligibleIds: null };
+    }
+    throw e;
+  }
 }
 
 function TabButton(props: {
@@ -309,6 +386,8 @@ function DriveCard({
   canManage,
   isStudent,
   application,
+  eligible,
+  onCompleteProfile,
   onDelete,
   onApply,
   onEdit,
@@ -320,6 +399,9 @@ function DriveCard({
   canManage: boolean;
   isStudent: boolean;
   application?: Application;
+  /** Whether the student qualifies; null when unknown because the profile is incomplete. */
+  eligible: boolean | null;
+  onCompleteProfile: () => void;
   onDelete: () => void;
   onApply: () => void;
   onEdit: () => void;
@@ -437,9 +519,26 @@ function DriveCard({
             // backend accepts a fresh POST here. A withdrawn row reopens rather than
             // duplicates, since applying is blocked only by an active or decided
             // application, not by history.
-            <button onClick={onApply} disabled={closed} className="btn btn-sm btn-primary">
-              {closed ? "Closed" : "Apply"}
-            </button>
+            //
+            // Apply appears only where the backend would accept it: open, and the
+            // student qualifies. Otherwise the button says why not.
+            closed ? (
+              <button disabled className="btn btn-sm btn-primary">
+                Closed
+              </button>
+            ) : eligible === null ? (
+              <button onClick={onCompleteProfile} className="btn btn-sm btn-warning">
+                Complete profile to apply
+              </button>
+            ) : eligible ? (
+              <button onClick={onApply} className="btn btn-sm btn-primary">
+                Apply
+              </button>
+            ) : (
+              <span className="chip bg-slate-100 px-3 py-1.5 text-sm text-slate-500" title="Your marks or branch do not meet this drive's criteria">
+                Not eligible
+              </span>
+            )
           ))}
 
         {isStudent && (
