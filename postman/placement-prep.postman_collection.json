@@ -189,6 +189,52 @@
               }
             }
           ]
+        },
+        {
+          "name": "Refresh my token (student)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{studentToken}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/auth/refresh"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"200 OK\", () => pm.response.to.have.status(200));",
+                  "const body = pm.response.json();",
+                  "pm.test(\"the new token carries the current role\", () => pm.expect(body.role).to.eql(\"STUDENT\"));",
+                  "pm.collectionVariables.set(\"studentToken\", body.token);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Refresh without a token -> 401",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": "{{baseUrl}}/api/auth/refresh"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"401 Unauthorized\", () => pm.response.to.have.status(401));"
+                ]
+              }
+            }
+          ]
         }
       ]
     },
@@ -272,6 +318,100 @@
                   "  pm.expect(pm.response.json().complete).to.eql(true);",
                   "  pm.expect(pm.response.json().branch).to.eql(\"CSE\");",
                   "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Change my password with a wrong current one -> 400",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{studentToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/users/me/password",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"currentPassword\": \"not-my-password\",\n  \"newPassword\": \"Changed2026!\"\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"400 Bad Request\", () => pm.response.to.have.status(400));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Change my password (student)",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{studentToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/users/me/password",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"currentPassword\": \"{{studentPassword}}\",\n  \"newPassword\": \"Changed2026!\"\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"204 No Content\", () => pm.response.to.have.status(204));",
+                  "pm.collectionVariables.set(\"studentPassword\", \"Changed2026!\");"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Sign in with the new password (student)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/auth/login",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{studentEmail}}\",\n  \"password\": \"{{studentPassword}}\"\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"200 OK\", () => pm.response.to.have.status(200));",
+                  "pm.collectionVariables.set(\"studentToken\", pm.response.json().token);"
                 ]
               }
             }
@@ -407,6 +547,40 @@
                 "exec": [
                   "pm.test(\"201 Created\", () => pm.response.to.have.status(201));",
                   "pm.collectionVariables.set(\"driveId\", pm.response.json().id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Post a drive with an out-of-range tier and CGPA cutoff -> 400",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/drives",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"companyName\": \"Postman Payments\",\n  \"role\": \"Backend Engineer\",\n  \"ctc\": 1200000,\n  \"tier\": 7,\n  \"cgpaCutoff\": 15,\n  \"tenthCutoff\": null,\n  \"twelfthCutoff\": null,\n  \"backlogsAllowed\": false,\n  \"maxBacklogs\": null,\n  \"eligibleBranches\": [\n    \"CSE\",\n    \"ECE\"\n  ],\n  \"applicationDeadline\": \"2099-06-30T18:00:00Z\",\n  \"description\": \"Build REST APIs in Java with Spring Boot and PostgreSQL.\"\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"400 Bad Request\", () => pm.response.to.have.status(400));",
+                  "const body = pm.response.json();",
+                  "pm.test(\"both fields are named\", () => pm.expect(body.errors).to.have.keys(\"tier\", \"cgpaCutoff\"));"
                 ]
               }
             }
@@ -750,6 +924,128 @@
           ]
         },
         {
+          "name": "Post an already-closed drive as the admin",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/drives",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"companyName\": \"Postman Closed Co\",\n  \"role\": \"Backend Engineer\",\n  \"ctc\": 1200000,\n  \"tier\": 1,\n  \"cgpaCutoff\": 7,\n  \"tenthCutoff\": null,\n  \"twelfthCutoff\": null,\n  \"backlogsAllowed\": false,\n  \"maxBacklogs\": null,\n  \"eligibleBranches\": [\n    \"CSE\",\n    \"ECE\"\n  ],\n  \"applicationDeadline\": \"2020-01-01T00:00:00Z\",\n  \"description\": \"Build REST APIs in Java with Spring Boot and PostgreSQL.\"\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"201 Created\", () => pm.response.to.have.status(201));",
+                  "pm.collectionVariables.set(\"closedDriveId\", pm.response.json().id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Apply to a closed drive -> 409",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{studentToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/applications",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"driveId\": {{closedDriveId}}\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"409 Conflict\", () => pm.response.to.have.status(409));",
+                  "pm.test(\"says it closed\", () => pm.expect(pm.response.json().detail).to.include(\"closed\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Delete the closed drive as the admin",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/drives/{{closedDriveId}}"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"204 No Content\", () => pm.response.to.have.status(204));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Apply to a drive that does not exist -> 404",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{studentToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/applications",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"driveId\": 999999999\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"404 Not Found\", () => pm.response.to.have.status(404));"
+                ]
+              }
+            }
+          ]
+        },
+        {
           "name": "My applications (student)",
           "request": {
             "method": "GET",
@@ -888,6 +1184,38 @@
           ]
         },
         {
+          "name": "Mark an application withdrawn as the admin -> 400",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/applications/{{applicationId}}/status",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"status\": \"WITHDRAWN\"\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"400 Bad Request\", () => pm.response.to.have.status(400));"
+                ]
+              }
+            }
+          ]
+        },
+        {
           "name": "Application counts as a student -> 403",
           "request": {
             "method": "GET",
@@ -960,11 +1288,175 @@
               }
             }
           ]
+        },
+        {
+          "name": "Withdraw again -> 409",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{studentToken}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/applications/{{applicationId}}/withdraw"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"409 Conflict\", () => pm.response.to.have.status(409));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Decide a withdrawn application as the admin -> 409",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/applications/{{applicationId}}/status",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"status\": \"SELECTED\"\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"409 Conflict\", () => pm.response.to.have.status(409));"
+                ]
+              }
+            }
+          ]
         }
       ]
     },
     {
-      "name": "6. Resume feedback",
+      "name": "6. Notifications",
+      "description": "Students' in-app notifications: a new drive they are eligible for, deadline reminders 3 days and 1 day before a drive closes, and changes to an application's status. The shortlisting in the Applications folder has already put a message here.",
+      "item": [
+        {
+          "name": "My notifications (student)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{studentToken}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/notifications/me"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"200 OK\", () => pm.response.to.have.status(200));",
+                  "const list = pm.response.json();",
+                  "const shortlisted = list.find((n) => n.kind === \"STATUS_CHANGED\");",
+                  "pm.test(\"the shortlisting was announced\", () => pm.expect(shortlisted).to.not.be.undefined);",
+                  "pm.test(\"and is unread\", () => pm.expect(shortlisted.read).to.eql(false));",
+                  "pm.collectionVariables.set(\"notificationId\", shortlisted.id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Mark one read (student)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{studentToken}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/notifications/{{notificationId}}/read"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"200 OK\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"now read\", () => pm.expect(pm.response.json().read).to.eql(true));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Mark all read (student)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{studentToken}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/notifications/read-all"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"204 No Content\", () => pm.response.to.have.status(204));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Notifications as the admin -> 403",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/notifications/me"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"403 Forbidden\", () => pm.response.to.have.status(403));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "7. Resume feedback",
       "description": "Uploading a resume for a drive; the AI review runs in the background.",
       "item": [
         {
@@ -1123,7 +1615,7 @@
       ]
     },
     {
-      "name": "7. AI assistant",
+      "name": "8. AI assistant",
       "description": "Plain-English questions answered by calling backend methods as tools.",
       "item": [
         {
@@ -1229,7 +1721,7 @@
       ]
     },
     {
-      "name": "8. Recruiters",
+      "name": "9. Recruiters",
       "description": "A recruiter is a company hiring contact, added by the admin with a company email. They post drives and review applicants, but only for drives they posted themselves: anyone else's drive is a 404, exactly like a drive that does not exist. They are not a student, so applying, resume feedback, the assistant and job-description search all answer 403.",
       "item": [
         {
@@ -1746,7 +2238,7 @@
       ]
     },
     {
-      "name": "9. Promotion and clean-up",
+      "name": "10. Promotion and clean-up",
       "description": "Staffing the cell is the admin's call alone. The student's delete is refused before the promotion; after it, the same token is a coordinator's, because the backend re-reads the role from the database on every request.",
       "item": [
         {
@@ -1817,6 +2309,71 @@
                 "exec": [
                   "pm.test(\"200 OK\", () => pm.response.to.have.status(200));",
                   "pm.test(\"includes the new student\", () => pm.expect(pm.response.json().map(u => u.email)).to.include(pm.collectionVariables.get(\"studentEmail\")));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Reset a password as a student -> 403",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{studentToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/users/{{studentId}}/password",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"newPassword\": \"Temporary2026!\"\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"403 Forbidden\", () => pm.response.to.have.status(403));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Reset the student's password as the admin",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/users/{{studentId}}/password",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"newPassword\": \"Temporary2026!\"\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"204 No Content\", () => pm.response.to.have.status(204));",
+                  "pm.collectionVariables.set(\"studentPassword\", \"Temporary2026!\");"
                 ]
               }
             }
@@ -2005,6 +2562,14 @@
     },
     {
       "key": "recruiterDriveId",
+      "value": ""
+    },
+    {
+      "key": "closedDriveId",
+      "value": ""
+    },
+    {
+      "key": "notificationId",
       "value": ""
     }
   ]

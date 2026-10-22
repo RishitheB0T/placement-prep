@@ -18,9 +18,11 @@ help them prepare.
 | Resume upload with AI feedback | **Built** - PDF reviewed by Claude via Spring AI in a background job; needs `ANTHROPIC_API_KEY` |
 | AI assistant | **Built** - Spring AI `@Tool` calling: the model calls backend service methods (eligible drives, my applications, apply, job-description search) from plain-English messages; needs `ANTHROPIC_API_KEY` |
 | Job-description search by meaning (RAG) | **Built** - uploaded JD PDFs are split, embedded by a local model and stored in pgvector; works without any API key |
+| Notifications and deadline reminders | **Built** - a bell for students: new drives they are eligible for, reminders 3 days and 1 day before a drive closes, and application status changes; a scheduled job sends the drive ones |
+| Account basics | **Built** - change your own password; the admin can reset a forgotten one |
+| Board and review basics | **Built** - search the drives board; download a drive's applicants as CSV |
 | Q&A over placement notices | Planned - same RAG pipeline, over notices |
 | Company-wise AI mock interviews | Planned |
-| Deadline reminders | Planned - scheduled jobs |
 
 The first TNP account (the person in charge) is seeded by a migration - see
 [Signing in as the person in charge](#signing-in-as-the-person-in-charge).
@@ -124,7 +126,7 @@ flowchart TD
 | Claim | Why it matters |
 | --- | --- |
 | **The token travels on every request, not just at login.** | `api/client.ts` attaches `Authorization: Bearer <token>` to all calls. There is no session and no cookie; the server keeps nothing between requests. |
-| **The role is re-read from the database on every request.** | `JwtAuthenticationFilter` does not trust the `role` claim inside the token. A promotion, or an account that has been changed, takes effect on the *next* request rather than whenever the token happens to expire (up to 24 hours later). |
+| **The role is re-read from the database on every request.** | `JwtAuthenticationFilter` does not trust the `role` claim inside the token. A promotion, or an account that has been changed, takes effect on the *next* request rather than whenever the token happens to expire (up to 24 hours later). The browser catches up too: when the profile and the token disagree, it fetches a fresh token from `/api/auth/refresh`, so the new pages appear without signing in again. |
 | **A 401 or 403 never reaches a controller.** | `SecurityConfig`'s rules run inside the filter chain, before dispatch. A student calling a PIC-only endpoint is refused there; the controller method never executes, so it needs no role check of its own. |
 | **Controllers never see or return an entity.** | Everything crossing the HTTP boundary is a DTO. `model/` (the database shape) and `dto/` (the public API shape) are free to change on different days without one breaking the other. |
 | **Services return `Optional`/`boolean`, never a status code.** | Deciding that absent means `404`, or that a clash means `409`, is the controller's job. The same service method stays callable from a future scheduled job or CLI command with no HTTP request in sight. |
@@ -274,10 +276,19 @@ stateDiagram-v2
     note right of APPLIED
         A student can only ever reach APPLIED and
         WITHDRAWN. Every other transition is the
-        placement cell's, enforced by SecurityConfig
+        hiring side's, enforced by SecurityConfig
         restricting PATCH .../status to staff.
+        Only APPLIED and SHORTLISTED can be withdrawn,
+        and a WITHDRAWN one cannot be decided.
     end note
 ```
+
+Applying checks, in order: the drive exists (`404` otherwise), there is no active
+application already, the deadline has not passed, the profile is complete, and the stored
+marks meet the drive's criteria - the same eligibility query as "Eligible for me" (`409`
+for each of those). The checks live in `ApplicationService.apply`, so the Apply button
+and the assistant's `applyToDrive` tool follow exactly the same rules. Every status
+change sends the student a notification.
 
 ### 5. The data model
 
@@ -427,6 +438,13 @@ Nothing secret is committed. Every value below has a local default that matches
 | `SERVER_PORT` | `8081` | backend port |
 | `JWT_SECRET` | a local development placeholder | token signing key |
 | `JWT_EXPIRATION` | `86400000` (24 hours) | token lifetime in milliseconds |
+| `ANTHROPIC_API_KEY` | empty | turns on resume feedback and the assistant |
+| `ANTHROPIC_MODEL` | `claude-opus-5-5` | the model both use |
+| `RESUME_STORAGE_DIR` | `uploads/resumes` | where uploaded PDFs are kept |
+| `RESUME_REVIEW_POLL_DELAY` | `PT5S` | how often the review job checks for new resumes |
+| `NOTIFICATION_INITIAL_DELAY` | `PT1M` | first deadline-reminder run after startup |
+| `NOTIFICATION_POLL_DELAY` | `PT15M` | wait between reminder runs |
+| `EMBEDDING_CACHE_DIR` / `DJL_CACHE_DIR` | under your home folder | where the local embedding model is cached |
 
 `JWT_SECRET` **must** be set to a random private value anywhere real. It is validated at
 startup: shorter than 32 characters and the application refuses to boot, naming the
@@ -588,8 +606,15 @@ All paths require `Authorization: Bearer <token>` unless marked public.
 | `POST` | `/api/users/{id}/promote` | make a student a coordinator - **PIC only** | `200` / `404` / `409` |
 | `POST` | `/api/users/recruiters` | add a company recruiter, `{email, password}` - **PIC only** | `201` / `409` |
 | `GET` | `/api/users?role=` | every account, optionally one role - **PIC only** | `200` / `400` |
+| `POST` | `/api/auth/refresh` | a fresh token with the account's current role (used after a promotion) | `200` / `401` |
+| `PUT` | `/api/users/me/password` | change my own password, `{currentPassword, newPassword}` - any role | `204` / `400` |
+| `POST` | `/api/users/{id}/password` | set a new password for someone who forgot theirs, `{newPassword}` - **PIC only** | `204` / `404` |
 
 `/api/auth/register` and `/api/auth/login` are public, as is `/actuator/health`.
+
+There is no email-based "forgot password" - that needs a mail server and a mail library.
+Instead the person in charge sets a temporary password from the People panel, and the
+owner changes it on their Profile page.
 
 A failed login is a flat `401` with no detail. Distinguishing "no such account" from
 "wrong password" would turn the endpoint into a way to discover which addresses are
@@ -703,11 +728,11 @@ Base path `/api/applications`.
 
 | Method | Path | Purpose | Who | Success |
 | --- | --- | --- | --- | --- |
-| `POST` | `/api/applications` | apply to a drive | student, coordinator | `201` / `409` |
+| `POST` | `/api/applications` | apply to a drive | student, coordinator | `201` / `404` / `409` |
 | `GET` | `/api/applications/me` | my own applications | student, coordinator | `200` |
 | `GET` | `/api/applications/drive/{driveId}` | everyone who applied to a drive | PIC, coordinator, recruiter | `200` |
-| `PATCH` | `/api/applications/{id}/status` | move an application along | PIC, coordinator, recruiter | `200` / `404` |
-| `POST` | `/api/applications/{id}/withdraw` | pull out of a drive | student, coordinator | `200` / `404` |
+| `PATCH` | `/api/applications/{id}/status` | move an application along | PIC, coordinator, recruiter | `200` / `400` / `404` / `409` |
+| `POST` | `/api/applications/{id}/withdraw` | pull out of a drive | student, coordinator | `200` / `404` / `409` |
 
 `POST /api/applications` takes only `{"driveId": ...}` - the student comes from the
 signed-in account, never from the body, so nobody can apply on someone else's behalf.
@@ -724,13 +749,36 @@ reopens that row or is refused, depending on its current status:
 
 Status is one of `APPLIED`, `SHORTLISTED`, `REJECTED`, `SELECTED`, `WITHDRAWN`. A student
 can move it to `APPLIED` (by applying, including re-applying after a withdrawal) and to
-`WITHDRAWN` (by withdrawing); every other transition is the placement cell's call through
-`PATCH .../status`.
+`WITHDRAWN` (by withdrawing); every other transition is the hiring side's call through
+`PATCH .../status`. Three guards keep a decision from being undone:
+
+- only an application still under review (`APPLIED` or `SHORTLISTED`) can be withdrawn -
+  otherwise withdrawing a rejection and applying again would reopen it as `APPLIED` (`409`)
+- the hiring side cannot set `WITHDRAWN` - that is the student's decision (`400`)
+- a withdrawn application cannot be decided (`409`)
 
 Withdrawing someone else's application answers `404`, not `403` - `ApplicationService`
 looks the row up by `(id, studentId)` together, so a guessed id that belongs to another
 student simply does not match, and the response never confirms that an application with
 that id exists at all.
+
+### Notifications
+
+Base path `/api/notifications`. Students and coordinators only - nobody else receives any.
+
+| Method | Path | Purpose | Success |
+| --- | --- | --- | --- |
+| `GET` | `/api/notifications/me` | my newest 50, newest first | `200` |
+| `POST` | `/api/notifications/{id}/read` | mark one of mine read | `200` / `404` |
+| `POST` | `/api/notifications/read-all` | mark all of mine read | `204` |
+
+Kinds: `NEW_DRIVE` (an open drive you are eligible for), `DEADLINE_3_DAYS` and
+`DEADLINE_1_DAY` (that drive closes soon and you have not applied), and `STATUS_CHANGED`
+(you were shortlisted, rejected or selected). `DeadlineReminderJob` sends the first three:
+a minute after startup and every 15 minutes after, it takes each student with a complete
+profile, their eligible open drives, skips any they applied to, and sends at most one of
+each kind per drive - a unique index in V15 makes "at most once" a database rule.
+`STATUS_CHANGED` is written by `ApplicationService` in the same transaction as the change.
 
 ### Errors
 
@@ -772,7 +820,7 @@ placement-prep/
 │           ├── resume/         Resume uploads and AI feedback         (planned)
 │           ├── knowledgebase/  RAG over placement notices             (planned)
 │           ├── interview/      AI mock interviews                     (planned)
-│           └── notification/   Deadline reminders                     (planned)
+│           └── notification/   Notifications and the deadline reminder job
 ├── frontend/               React + TypeScript single-page app (Vite)
 │   └── src/
 │       ├── api/                Functions that call the backend
@@ -810,6 +858,7 @@ Flyway stores a checksum of each file and refuses to start if one changes.
 | `V12__create_job_description_chunks_table.sql` | the pgvector table of job-description passages, with an HNSW index |
 | `V13__add_recruiter_role.sql` | allows the `RECRUITER` role |
 | `V14__add_created_by_to_drives.sql` | who posted each drive, so a recruiter sees only their own |
+| `V15__create_notifications_table.sql` | students' notifications, with a unique index so a reminder is never sent twice |
 
 ## Testing
 
@@ -818,7 +867,7 @@ cd backend
 .\mvnw.cmd test
 ```
 
-179 tests on JUnit (Jupiter 6, the line Spring Boot 4 ships) in two kinds:
+223 tests on JUnit (Jupiter 6, the line Spring Boot 4 ships) in two kinds:
 
 - **Integration tests** (`*ApiTest`) run against a real PostgreSQL container started by
   Testcontainers using the `pgvector/pgvector:pg16` image, so **Docker must be running**.
@@ -847,7 +896,7 @@ cd frontend
 npm test
 ```
 
-66 tests on Vitest and React Testing Library, in jsdom. They need no backend and no
+88 tests on Vitest and React Testing Library, in jsdom. They need no backend and no
 Docker: every call through `src/api` is stubbed, which is also why `vitest.config.ts` is
 a separate file from `vite.config.ts` - the dev config carries a proxy to `:8081`, and a
 test must never quietly pass because a real server happened to be running.
@@ -861,8 +910,11 @@ exactly the controls they should, so that cannot come back unnoticed.
 | File | Covers |
 | --- | --- |
 | `api/client.test.ts` | the token on every request, RFC 9457 unwrapping, clearing on 401 but not 403, bodiless POST, 204 |
-| `pages/Drives.test.tsx` | Apply vs Delete vs Edit per role, the re-apply-after-withdraw button, and not calling `/eligible` for an incomplete profile |
-| `pages/Applications.test.tsx` | the coordinator's two tabs, applicant emails, withdraw, status changes |
+| `pages/Drives.test.tsx` | Apply vs Delete vs Edit per role, Apply only where eligible, search, the re-apply-after-withdraw button, and not calling `/eligible` for an incomplete profile |
+| `pages/Applications.test.tsx` | the coordinator's two tabs, applicant emails, withdraw only while under review, no decisions on a withdrawn one, status changes, CSV export |
+| `pages/Profile.test.tsx` | each role's form, and changing the password |
+| `components/NotificationBell.test.tsx` | the unread count, the list, marking one or all read |
+| `api/auth.test.ts` | refreshing the token when the account's role changed since sign-in |
 | `pages/Login.test.tsx` | the Recruiter and Administration tabs each admitting only their role, and discarding the token when they refuse |
 | `pages/Resumes.test.tsx` | the finished review, retry, refusing a non-PDF before upload, uploading |
 | `pages/Assistant.test.tsx` | chat replies and follow-ups, the "not switched on" message, job-description search |
@@ -876,7 +928,9 @@ covers every REST endpoint, including the role-based rules: each restricted endp
 called once by a role that may use it and once by one that may not. Import it into
 Postman and run the folders in order against a running backend (set `baseUrl` if it is
 not `http://localhost:8081`); file uploads use the two sample PDFs next to it. Each run
-leaves behind one `postman.<timestamp>@cse.nits.ac.in` account.
+leaves behind one `postman.<timestamp>@cse.nits.ac.in` account and one recruiter account.
+The 85 requests in 11 folders make 114 assertions, including the apply rules (closed drive,
+unknown drive, decided and withdrawn applications) and the Notifications folder.
 
 ## Notes
 
