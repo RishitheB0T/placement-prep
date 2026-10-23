@@ -1,0 +1,61 @@
+# Showcase only: free services sleep; uploads are temporary; the database expires after 30 days.
+services:
+  - type: web
+    name: placement-prep-api
+    runtime: docker
+    plan: free
+    region: singapore
+    dockerfilePath: ./backend/Dockerfile
+    dockerContext: ./backend
+    dockerCommand: /bin/sh -c 'export DB_URL="jdbc:postgresql://${DB_HOST}:5432/${DB_NAME}"; exec java -jar /app/app.jar'
+    healthCheckPath: /actuator/health
+    envVars:
+      - key: SERVER_PORT
+        value: "10000"
+      - key: JAVA_TOOL_OPTIONS
+        value: "-Xms64m -Xmx256m -XX:+UseSerialGC -XX:ActiveProcessorCount=2"
+      - key: MANAGEMENT_ENDPOINT_HEALTH_SHOW_DETAILS
+        value: never
+      - key: JWT_SECRET
+        generateValue: true
+      - key: ANTHROPIC_API_KEY
+        value: ""
+      - key: DB_HOST
+        fromDatabase:
+          name: placement-prep-db
+          property: host
+      - key: DB_NAME
+        fromDatabase:
+          name: placement-prep-db
+          property: database
+      - key: DB_USERNAME
+        fromDatabase:
+          name: placement-prep-db
+          property: user
+      - key: DB_PASSWORD
+        fromDatabase:
+          name: placement-prep-db
+          property: password
+  - type: web
+    name: placement-prep-showcase
+    runtime: docker
+    plan: free
+    region: singapore
+    dockerfilePath: ./frontend/Dockerfile.render
+    dockerContext: ./frontend
+    healthCheckPath: /healthz
+    envVars:
+      - key: PORT
+        value: "10000"
+      - key: API_HOST
+        fromService:
+          type: web
+          name: placement-prep-api
+          envVarKey: RENDER_EXTERNAL_HOSTNAME
+databases:
+  - name: placement-prep-db
+    plan: free
+    region: singapore
+    postgresMajorVersion: "16"
+    databaseName: placementprep
+    ipAllowList: []

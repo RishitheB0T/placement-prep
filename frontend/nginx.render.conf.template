@@ -1,0 +1,30 @@
+# Render's free backend only accepts public HTTPS traffic.
+# nginx's entrypoint substitutes API_HOST and PORT at startup.
+server {
+    listen ${PORT};
+    root /usr/share/nginx/html;
+    index index.html;
+
+    location = /healthz {
+        access_log off;
+        return 200 "ok\n";
+    }
+
+    location /api/ {
+        proxy_pass https://${API_HOST};
+        proxy_ssl_server_name on;
+        proxy_ssl_name ${API_HOST};
+        proxy_ssl_verify on;
+        proxy_ssl_trusted_certificate /etc/ssl/certs/ca-certificates.crt;
+        proxy_set_header Host ${API_HOST};
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto https;
+        client_max_body_size 6m;
+        proxy_read_timeout 180s;
+        proxy_connect_timeout 60s;
+    }
+
+    location / {
+        try_files $uri $uri/ /index.html;
+    }
+}
