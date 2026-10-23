@@ -2,6 +2,7 @@ package com.rishikesh.placementprep.modules.knowledgebase.service;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 import org.springframework.ai.document.Document;
 import org.springframework.ai.reader.pdf.PagePdfDocumentReader;
@@ -9,6 +10,8 @@ import org.springframework.ai.transformer.splitter.TokenTextSplitter;
 import org.springframework.ai.vectorstore.SearchRequest;
 import org.springframework.ai.vectorstore.VectorStore;
 import org.springframework.core.io.ByteArrayResource;
+import org.springframework.http.HttpStatus;
+import org.springframework.web.server.ResponseStatusException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -50,9 +53,9 @@ public class JobDescriptionService {
             .withKeepSeparator(true)
             .build();
 
-    private final VectorStore vectorStore;
+    private final Optional<VectorStore> vectorStore;
 
-    public JobDescriptionService(VectorStore vectorStore) {
+    public JobDescriptionService(Optional<VectorStore> vectorStore) {
         this.vectorStore = vectorStore;
     }
 
@@ -67,6 +70,7 @@ public class JobDescriptionService {
      */
     @Transactional
     public int index(Long driveId, String companyName, String role, byte[] pdf) {
+        VectorStore store = requireVectorStore();
         // 1. Read the PDF, one document per page
         List<Document> pages = new PagePdfDocumentReader(named(pdf)).get();
 
@@ -89,7 +93,7 @@ public class JobDescriptionService {
 
         // 4. Replace: drop this drive's previous passages, then embed and store the new ones
         forgetDrive(driveId);
-        vectorStore.add(labelled);
+        store.add(labelled);
         return labelled.size();
     }
 
@@ -101,14 +105,20 @@ public class JobDescriptionService {
                 .similarityThreshold(MIN_SIMILARITY)
                 .build();
 
-        return vectorStore.similaritySearch(request).stream()
+        return requireVectorStore().similaritySearch(request).stream()
                 .map(this::toMatch)
                 .toList();
     }
 
     /** Removes a drive's passages - on re-upload, and when the drive itself is deleted. */
     public void forgetDrive(Long driveId) {
-        vectorStore.delete("driveId == " + driveId);
+        vectorStore.ifPresent(store -> store.delete("driveId == " + driveId));
+    }
+
+    private VectorStore requireVectorStore() {
+        return vectorStore.orElseThrow(() -> new ResponseStatusException(
+                HttpStatus.SERVICE_UNAVAILABLE,
+                "Semantic search is disabled in this free showcase."));
     }
 
     private JobDescriptionMatch toMatch(Document passage) {

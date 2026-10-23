@@ -1,6 +1,8 @@
 package com.rishikesh.placementprep.modules.knowledgebase;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.inOrder;
@@ -12,6 +14,7 @@ import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 import org.apache.pdfbox.pdmodel.PDDocument;
 import org.apache.pdfbox.pdmodel.PDPage;
@@ -45,7 +48,7 @@ class JobDescriptionServiceTest {
 
     @Test
     void indexingLabelsEveryPassageWithItsDriveAndReplacesTheOldOnes() throws IOException {
-        JobDescriptionService service = new JobDescriptionService(vectorStore);
+        JobDescriptionService service = new JobDescriptionService(Optional.of(vectorStore));
 
         int passages = service.index(12L, "Zoho", "SDE", pdfWithText(
                 "Backend Engineer. Build REST APIs in Java with Spring Boot and PostgreSQL."));
@@ -67,7 +70,7 @@ class JobDescriptionServiceTest {
 
     @Test
     void aPdfWithNoTextIndexesNothingAndLeavesTheOldPassagesAlone() throws IOException {
-        JobDescriptionService service = new JobDescriptionService(vectorStore);
+        JobDescriptionService service = new JobDescriptionService(Optional.of(vectorStore));
 
         assertThat(service.index(12L, "Zoho", "SDE", pdfWithText(""))).isZero();
 
@@ -85,10 +88,23 @@ class JobDescriptionServiceTest {
                 .build();
         when(vectorStore.similaritySearch(any(SearchRequest.class))).thenReturn(List.of(passage));
 
-        List<JobDescriptionMatch> matches = new JobDescriptionService(vectorStore).search("databases", 5);
+        List<JobDescriptionMatch> matches = new JobDescriptionService(Optional.of(vectorStore)).search("databases", 5);
 
         assertThat(matches).containsExactly(
                 new JobDescriptionMatch(12L, "Zoho", "SDE", "Strong SQL skills are required.", 0.71));
+    }
+
+    @Test
+    void disabledSearchReturnsServiceUnavailableAndDoesNotBlockDriveDeletion() {
+        JobDescriptionService service = new JobDescriptionService(Optional.empty());
+        assertThatThrownBy(() -> service.search("databases", 5))
+                .isInstanceOf(org.springframework.web.server.ResponseStatusException.class)
+                .hasMessageContaining("503")
+                .hasMessageContaining("disabled");
+        assertThatThrownBy(() -> service.index(12L, "Zoho", "SDE", new byte[0]))
+                .isInstanceOf(org.springframework.web.server.ResponseStatusException.class)
+                .hasMessageContaining("503");
+        assertThatCode(() -> service.forgetDrive(12L)).doesNotThrowAnyException();
     }
 
     /** A one-page PDF with real, selectable text - or none at all, for an empty string. */

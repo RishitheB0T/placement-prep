@@ -10,6 +10,9 @@ services:
     dockerCommand: /bin/sh /app/render-start.sh
     healthCheckPath: /actuator/health
     envVars:
+      # Keep the local ONNX model out of the 512 MB showcase process.
+      - key: SPRING_AUTOCONFIGURE_EXCLUDE
+        value: org.springframework.ai.model.transformers.autoconfigure.TransformersEmbeddingModelAutoConfiguration,org.springframework.ai.vectorstore.pgvector.autoconfigure.PgVectorStoreAutoConfiguration
       - key: SERVER_PORT
         value: "10000"
       - key: JAVA_TOOL_OPTIONS
