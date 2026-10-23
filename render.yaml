@@ -7,7 +7,7 @@ services:
     region: singapore
     dockerfilePath: ./backend/Dockerfile
     dockerContext: ./backend
-    dockerCommand: /bin/sh -c 'export DB_URL="jdbc:postgresql://${DB_HOST}:5432/${DB_NAME}"; exec java -jar /app/app.jar'
+    dockerCommand: /bin/sh /app/render-start.sh
     healthCheckPath: /actuator/health
     envVars:
       - key: SERVER_PORT

@@ -39,5 +39,7 @@ ENV RESUME_STORAGE_DIR=/data/resumes \
 
 COPY --from=build /workspace/target/placementprep-0.0.1-SNAPSHOT.jar app.jar
 
+COPY render-start.sh /app/render-start.sh
+
 EXPOSE 8081
 ENTRYPOINT ["java", "-jar", "/app/app.jar"]
