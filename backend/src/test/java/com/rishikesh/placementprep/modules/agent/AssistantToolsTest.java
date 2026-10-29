@@ -102,6 +102,16 @@ class AssistantToolsTest {
         assertThat(toolsFor(student).applyToDrive(99L)).contains("No drive with id 99");
     }
 
+    /** Where semantic search is switched off, the model is told so rather than given nothing. */
+    @Test
+    void searchingJobDescriptionsExplainsWhenSearchIsSwitchedOff() {
+        when(jobDescriptionService.isEnabled()).thenReturn(false);
+
+        assertThatThrownBy(() -> toolsFor(student(new BigDecimal("8.5"), "CSE")).searchJobDescriptions("databases"))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("switched off");
+    }
+
     private AssistantTools toolsFor(UserProfileDTO student) {
         return new AssistantTools(student, driveService, applicationService, jobDescriptionService);
     }

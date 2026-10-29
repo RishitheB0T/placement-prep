@@ -10,8 +10,6 @@ import org.springframework.ai.transformer.splitter.TokenTextSplitter;
 import org.springframework.ai.vectorstore.SearchRequest;
 import org.springframework.ai.vectorstore.VectorStore;
 import org.springframework.core.io.ByteArrayResource;
-import org.springframework.http.HttpStatus;
-import org.springframework.web.server.ResponseStatusException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -30,12 +28,20 @@ import com.rishikesh.placementprep.modules.knowledgebase.dto.JobDescriptionMatch
  *
  * <p>Takes plain values rather than a DriveDTO, so this module does not depend on the
  * drive module and the drive module can call {@link #forgetDrive} without a cycle.
+ *
+ * <p>The vector store is optional. A deployment too small for the local embedding model
+ * (the free showcase) leaves it out; {@link #isEnabled()} then answers false, the callers
+ * decide what that means for them - a 503 over HTTP, a message to the model - and forgetting
+ * a drive's passages quietly does nothing, since there are none.
  */
 @Service
 public class JobDescriptionService {
 
     /** How many passages a search returns when the caller does not say. */
     public static final int DEFAULT_RESULTS = 5;
+
+    /** Why search and indexing are unavailable where the vector store is left out. */
+    public static final String DISABLED_MESSAGE = "Semantic search is switched off on this server";
 
     /** Below this similarity a passage has too little to do with the question to show. */
     private static final double MIN_SIMILARITY = 0.2;
@@ -57,6 +63,11 @@ public class JobDescriptionService {
 
     public JobDescriptionService(Optional<VectorStore> vectorStore) {
         this.vectorStore = vectorStore;
+    }
+
+    /** Whether semantic search is switched on - false where the vector store is left out. */
+    public boolean isEnabled() {
+        return vectorStore.isPresent();
     }
 
     /**
@@ -142,10 +153,13 @@ public class JobDescriptionService {
         vectorStore.ifPresent(store -> store.delete("driveId == " + driveId));
     }
 
+    /**
+     * The vector store, for the operations that cannot work without it. Callers check
+     * {@link #isEnabled()} first; this is the backstop, and a plain domain exception rather
+     * than an HTTP one, so the service stays free of web types.
+     */
     private VectorStore requireVectorStore() {
-        return vectorStore.orElseThrow(() -> new ResponseStatusException(
-                HttpStatus.SERVICE_UNAVAILABLE,
-                "Semantic search is disabled in this free showcase."));
+        return vectorStore.orElseThrow(() -> new IllegalStateException(DISABLED_MESSAGE));
     }
 
     private JobDescriptionMatch toMatch(Document passage) {

@@ -61,6 +61,8 @@ public class JobDescriptionController {
     public ResponseEntity<IndexedJobDescription> upload(@AuthenticationPrincipal UserDetails principal,
                                                         @PathVariable Long driveId,
                                                         @RequestParam MultipartFile file) throws IOException {
+        requireEnabled();
+
         // 1. Same checks as a resume upload: something there, and really a PDF
         byte[] content = file.getBytes();
         if (content.length < PDF_SIGNATURE.length
@@ -96,6 +98,17 @@ public class JobDescriptionController {
     public List<JobDescriptionMatch> search(@RequestParam @NotBlank @Size(max = 500) String q,
                                             @RequestParam(defaultValue = "" + JobDescriptionService.DEFAULT_RESULTS)
                                             @Min(1) @Max(20) int limit) {
+        requireEnabled();
         return jobDescriptionService.search(q.trim(), limit);
+    }
+
+    /**
+     * 503 where semantic search is switched off (a deployment without the vector store):
+     * the request is fine, but this server cannot answer it.
+     */
+    private void requireEnabled() {
+        if (!jobDescriptionService.isEnabled()) {
+            throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, JobDescriptionService.DISABLED_MESSAGE);
+        }
     }
 }

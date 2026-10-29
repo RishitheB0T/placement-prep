@@ -94,17 +94,23 @@ class JobDescriptionServiceTest {
                 new JobDescriptionMatch(12L, "Zoho", "SDE", "Strong SQL skills are required.", 0.71));
     }
 
+    /**
+     * Without a vector store (the free showcase) search and indexing are refused with a
+     * domain exception - the controller turns that into a 503 - while deleting a drive and
+     * reviewing a resume still work: there are simply no passages.
+     */
     @Test
-    void disabledSearchReturnsServiceUnavailableAndDoesNotBlockDriveDeletion() {
+    void withoutAVectorStoreSearchIsRefusedButNothingElseBreaks() {
         JobDescriptionService service = new JobDescriptionService(Optional.empty());
+
+        assertThat(service.isEnabled()).isFalse();
         assertThatThrownBy(() -> service.search("databases", 5))
-                .isInstanceOf(org.springframework.web.server.ResponseStatusException.class)
-                .hasMessageContaining("503")
-                .hasMessageContaining("disabled");
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessage(JobDescriptionService.DISABLED_MESSAGE);
         assertThatThrownBy(() -> service.index(12L, "Zoho", "SDE", new byte[0]))
-                .isInstanceOf(org.springframework.web.server.ResponseStatusException.class)
-                .hasMessageContaining("503");
+                .isInstanceOf(IllegalStateException.class);
         assertThatCode(() -> service.forgetDrive(12L)).doesNotThrowAnyException();
+        assertThat(service.passagesFor(12L, "required skills", 8)).isEmpty();
     }
 
     /** A one-page PDF with real, selectable text - or none at all, for an empty string. */

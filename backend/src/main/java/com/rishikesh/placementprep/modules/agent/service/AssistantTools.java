@@ -105,6 +105,11 @@ public class AssistantTools {
             + "passages, each with the drive it belongs to.")
     public List<JobDescriptionMatch> searchJobDescriptions(
             @ToolParam(description = "What to look for, in plain words") String query) {
+        // Thrown, like eligibleDrives does: Spring AI hands the message back to the model,
+        // which can then tell the student search is unavailable instead of "no matches".
+        if (!jobDescriptionService.isEnabled()) {
+            throw new IllegalStateException(JobDescriptionService.DISABLED_MESSAGE + ".");
+        }
         return jobDescriptionService.search(query, JobDescriptionService.DEFAULT_RESULTS);
     }
 

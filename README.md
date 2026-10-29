@@ -11,7 +11,7 @@ tool calling · semantic search with pgvector
 <br/>
 
 [![CI](https://github.com/RishitheB0T/placement-prep/actions/workflows/ci.yml/badge.svg)](https://github.com/RishitheB0T/placement-prep/actions/workflows/ci.yml)
-![Tests](https://img.shields.io/badge/tests-314_passing-22c55e?logo=checkmarx&logoColor=white)
+![Tests](https://img.shields.io/badge/tests-315_passing-22c55e?logo=checkmarx&logoColor=white)
 ![Endpoints](https://img.shields.io/badge/REST_endpoints-35-8b5cf6)
 ![Postman](https://img.shields.io/badge/Postman-85_requests-FF6C37?logo=postman&logoColor=white)
 
@@ -100,7 +100,7 @@ filter chain, plus row-level ownership: a recruiter only ever sees the drives th
 <td valign="top">
 
 ### 🧱 Built to be trusted
-Flyway-owned schema, validation that mirrors every column, RFC 9457 errors, **225 backend
+Flyway-owned schema, validation that mirrors every column, RFC 9457 errors, **226 backend
 tests on real PostgreSQL + pgvector** via Testcontainers, CI on every push.
 
 </td>
@@ -289,7 +289,7 @@ Configuration, ports and every command are in the [development guide](docs/DEVEL
 
 | | |
 | --- | --- |
-| 🧪 **225 backend tests** | Integration tests on **real PostgreSQL + pgvector** (Testcontainers) with real signed JWTs; unit tests for every service; the AI tool-calling loop tested against a fake Anthropic server |
+| 🧪 **226 backend tests** | Integration tests on **real PostgreSQL + pgvector** (Testcontainers) with real signed JWTs; unit tests for every service; the AI tool-calling loop tested against a fake Anthropic server |
 | 🧪 **89 frontend tests** | Vitest + React Testing Library - every role gets exactly the controls it should |
 | 📮 **85 Postman requests** | Every endpoint, each restricted one called by a role that may and one that may not - 114 assertions |
 | 🔁 **CI** | GitHub Actions builds and tests backend and frontend on every push |
