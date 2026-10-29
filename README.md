@@ -1,943 +1,355 @@
-# placement-prep
+<div align="center">
 
-A campus placement preparation platform: the training-and-placement (TNP) cell posts
-placement drives, students see only the ones they actually qualify for, and AI features
-help them prepare.
+<img src="docs/assets/banner.svg" alt="Placement Prep - campus placements, organised" width="100%"/>
 
-## Status
+### The campus placement platform for students, recruiters and the training & placement cell
 
-| Feature | State |
-| --- | --- |
-| Drives board - TNP CRUD and the student eligibility filter | **Built** |
-| Applications - a student applying to a drive, and the cell tracking status | **Built** |
-| Accounts, login and roles - student, coordinator, recruiter, admin | **Built** - Spring Security + JWT |
-| Separate Recruiter and Administration sign-in tabs, and a staff profile for the person in charge | **Built** |
-| Web UI - register, sign in, profile, drives board, applications, posting a drive | **Built** |
-| Role dashboards - student, coordinator, recruiter and admin views, with the admin adding recruiters and promoting students to coordinator | **Built** |
-| Running in Docker - backend and frontend images, one `docker compose` command | **Built** |
-| Resume upload with AI feedback | **Built** - PDF reviewed by Claude via Spring AI in a background job; needs `ANTHROPIC_API_KEY` |
-| AI assistant | **Built** - Spring AI `@Tool` calling: the model calls backend service methods (eligible drives, my applications, apply, job-description search) from plain-English messages; needs `ANTHROPIC_API_KEY` |
-| Job-description search by meaning (RAG) | **Built** - uploaded JD PDFs are split, embedded by a local model and stored in pgvector; works without any API key |
-| Notifications and deadline reminders | **Built** - a bell for students: new drives they are eligible for, reminders 3 days and 1 day before a drive closes, and application status changes; a scheduled job sends the drive ones |
-| Account basics | **Built** - change your own password; the admin can reset a forgotten one |
-| Board and review basics | **Built** - search the drives board; download a drive's applicants as CSV |
-| Q&A over placement notices | Planned - same RAG pipeline, over notices |
-| Company-wise AI mock interviews | Planned |
+Drives with automatic eligibility · applications from apply to offer · deadline reminders ·
+AI resume feedback grounded in the real job description · an AI assistant that acts through
+tool calling · semantic search with pgvector
 
-The first TNP account (the person in charge) is seeded by a migration - see
-[Signing in as the person in charge](#signing-in-as-the-person-in-charge).
+<br/>
 
-## Stack
+[![CI](https://github.com/RishitheB0T/placement-prep/actions/workflows/ci.yml/badge.svg)](https://github.com/RishitheB0T/placement-prep/actions/workflows/ci.yml)
+![Tests](https://img.shields.io/badge/tests-313_passing-22c55e?logo=checkmarx&logoColor=white)
+![Endpoints](https://img.shields.io/badge/REST_endpoints-35-8b5cf6)
+![Postman](https://img.shields.io/badge/Postman-85_requests-FF6C37?logo=postman&logoColor=white)
 
-**Backend** - Java 21, Maven, Spring Boot 4.1, Spring Web MVC, Spring Security 7, Bean
-Validation, Spring Data JPA, Flyway, Spring AI 2.0 (Anthropic), Actuator, Testcontainers.
-**Frontend** - React 19, TypeScript, Vite, Tailwind CSS v4, React Router v7, Axios.
-**Infrastructure** - PostgreSQL 16 with the pgvector extension, via Docker Compose.
+![Java](https://img.shields.io/badge/Java-21-ED8B00?logo=openjdk&logoColor=white)
+![Spring Boot](https://img.shields.io/badge/Spring_Boot-4.1-6DB33F?logo=springboot&logoColor=white)
+![Spring AI](https://img.shields.io/badge/Spring_AI-2.0-6DB33F?logo=spring&logoColor=white)
+![React](https://img.shields.io/badge/React-19-61DAFB?logo=react&logoColor=black)
+![TypeScript](https://img.shields.io/badge/TypeScript-6-3178C6?logo=typescript&logoColor=white)
+![PostgreSQL](https://img.shields.io/badge/PostgreSQL_16-pgvector-4169E1?logo=postgresql&logoColor=white)
+![Tailwind CSS](https://img.shields.io/badge/Tailwind_CSS-4-06B6D4?logo=tailwindcss&logoColor=white)
+![Docker](https://img.shields.io/badge/Docker-compose-2496ED?logo=docker&logoColor=white)
 
-## How it fits together
+**[Features](#-features)** · **[Screenshots](#-screenshots)** · **[Architecture](#%EF%B8%8F-architecture)** · **[AI & RAG](#-ai-and-rag)** · **[Quick start](#-quick-start)** · **[Docs](#-documentation)**
 
-Five views of the same system, from the outside in. Everything below describes the
-development setup this repository actually runs - `npm run dev` for the frontend and
-`mvnw spring-boot:run` for the backend. There is no production build or deployment story
-here yet, so none of these diagrams invent one.
+<br/>
 
-### 1. Frontend to backend, layer by layer
+<img src="docs/screenshots/student-dashboard.png" alt="The student dashboard" width="92%"/>
 
-Every request in the application takes this path. Nothing bypasses it.
+</div>
+
+<br/>
+
+## ✨ Features
+
+<table>
+<tr>
+<td width="33%" valign="top">
+
+### 🎯 Drives that fit you
+Students see **only the drives their marks qualify for** - CGPA, 10th, 12th, branch and
+backlogs, checked by one SQL query against their stored profile. Search the whole board by
+company, role or branch.
+
+</td>
+<td width="33%" valign="top">
+
+### 📋 Applications, end to end
+Apply, withdraw, and follow every application from **applied → shortlisted → selected**.
+The hiring side reviews applicants, leaves notes, sees live counts and downloads them as
+CSV.
+
+</td>
+<td width="33%" valign="top">
+
+### 🔔 Never miss a deadline
+A scheduled job sends **new-drive alerts** and reminders **3 days and 1 day** before a
+drive closes - only to eligible students who have not applied. Status changes land in the
+same bell.
+
+</td>
+</tr>
+<tr>
+<td valign="top">
+
+### 📄 AI resume feedback
+Upload a PDF against a drive: **Claude reads it natively** and returns a score, strengths
+and concrete fixes - judged against passages **retrieved from that drive's
+job-description PDF**. Runs in a background queue.
+
+</td>
+<td valign="top">
+
+### 🤖 An assistant that acts
+Ask in plain English - *"which drives can I apply to?"*, *"apply me to Nimbus"*. Through
+**Spring AI `@Tool` calling** the model invokes real backend methods, under the same rules
+as the buttons.
+
+</td>
+<td valign="top">
+
+### 🔍 Search by meaning (RAG)
+Job-description PDFs are split, embedded by a **local model** and stored in **pgvector**.
+*"Data pipelines with Spark"* finds the right job even when no word matches - with no API
+key at all.
+
+</td>
+</tr>
+<tr>
+<td valign="top">
+
+### 🔐 Four roles, enforced twice
+**Student, coordinator, recruiter, admin** - JWT auth with role rules in the security
+filter chain, plus row-level ownership: a recruiter only ever sees the drives they posted.
+
+</td>
+<td valign="top">
+
+### 🧱 Built to be trusted
+Flyway-owned schema, validation that mirrors every column, RFC 9457 errors, **224 backend
+tests on real PostgreSQL + pgvector** via Testcontainers, CI on every push.
+
+</td>
+<td valign="top">
+
+### 🐳 One command to run
+`docker compose --profile app up` starts PostgreSQL, the Spring Boot API and the
+nginx-served React app together - no JDK or Node needed.
+
+</td>
+</tr>
+</table>
+
+### 👥 Built for four roles
+
+| | Role | What they do |
+| :---: | --- | --- |
+| 🎓 | **Student** | Builds a profile, sees eligible drives, applies, tracks applications, gets reminders, resume feedback and the assistant |
+| 📋 | **Coordinator** | A student who helps run the cell - everything a student does, **plus** posting drives and reviewing every applicant |
+| 💼 | **Recruiter** | A company's hiring contact, added by the admin - posts drives and decides applications, **for their own drives only** |
+| ⭐ | **Admin** | The person in charge of the placement cell - oversees everything, adds recruiters, promotes coordinators, resets passwords |
+
+<br/>
+
+## 📸 Screenshots
+
+<table>
+<tr>
+<td width="50%"><img src="docs/screenshots/drives-all.png" alt="The drives board"/><p align="center"><b>Drives board</b> - Apply only where you qualify, live deadlines</p></td>
+<td width="50%"><img src="docs/screenshots/notifications.png" alt="Notifications"/><p align="center"><b>Notifications</b> - new drives, deadlines, decisions</p></td>
+</tr>
+<tr>
+<td><img src="docs/screenshots/assistant.png" alt="The assistant with semantic search"/><p align="center"><b>Assistant + semantic search</b> - matched by meaning via pgvector</p></td>
+<td><img src="docs/screenshots/applications.png" alt="My applications"/><p align="center"><b>My applications</b> - status and the recruiter's notes</p></td>
+</tr>
+<tr>
+<td><img src="docs/screenshots/admin-dashboard.png" alt="The admin dashboard"/><p align="center"><b>Admin dashboard</b> - the whole cell, people and promotions</p></td>
+<td><img src="docs/screenshots/applicants.png" alt="Reviewing applicants"/><p align="center"><b>Reviewing applicants</b> - decide in a click, export as CSV</p></td>
+</tr>
+</table>
+
+<details>
+<summary><b>More screenshots</b> - sign-in, recruiter dashboard, posting a drive, eligible drives</summary>
+<br/>
+<table>
+<tr>
+<td width="50%"><img src="docs/screenshots/login.png" alt="Sign in"/><p align="center"><b>Sign in</b> - one form, a tab per kind of account</p></td>
+<td width="50%"><img src="docs/screenshots/recruiter-dashboard.png" alt="The recruiter dashboard"/><p align="center"><b>Recruiter dashboard</b> - scoped to the company's own drives</p></td>
+</tr>
+<tr>
+<td><img src="docs/screenshots/post-drive.png" alt="Posting a drive"/><p align="center"><b>Posting a drive</b> - cutoffs, branches, deadline</p></td>
+<td><img src="docs/screenshots/drives.png" alt="Eligible drives"/><p align="center"><b>Eligible for me</b> - computed from the stored profile</p></td>
+</tr>
+</table>
+</details>
+
+<sub>Screenshots use fictional companies and students.</sub>
+
+<br/>
+
+## 🏗️ Architecture
+
+A **modular monolith**: one Spring Boot API split into feature modules, one React
+single-page app, and one PostgreSQL database that also stores the vector embeddings.
 
 ```mermaid
-flowchart TD
-    User(["Student, coordinator<br/>or person in charge"])
-
-    subgraph BROWSER["🖥️ Browser — http://localhost:5173"]
-        direction TB
-        Pages["<b>pages/*.tsx</b><br/>Login · Register · Profile<br/>Drives · Applications · PostDrive<br/><i>each branches on the role</i>"]
-        ApiLayer["<b>api/*.ts</b><br/>auth · drives · applications<br/><i>one function per endpoint</i>"]
-        Client["<b>api/client.ts</b><br/>the single fetch wrapper<br/>attaches the Bearer token,<br/>unwraps errors, clears on 401"]
-        Storage[("localStorage<br/>placementprep.token")]
-
-        Pages -->|"never fetch() directly"| ApiLayer
-        ApiLayer --> Client
-        Client <-->|"read every request"| Storage
+flowchart LR
+    subgraph CLIENT["🖥️ Browser"]
+        SPA["<b>React 19 SPA</b><br/>role-aware pages<br/>Axios + JWT"]
     end
 
-    subgraph VITE["⚙️ Vite dev server — :5173"]
-        direction TB
-        Proxy["<b>server.proxy</b><br/>/api + /actuator → :8081<br/><i>one origin, so no CORS anywhere</i>"]
+    PROXY["🌐 <b>nginx</b> / Vite proxy<br/>one origin, no CORS"]
+
+    subgraph API["☕ Spring Boot 4 - modular monolith"]
+        SEC["🔒 JWT filter<br/>+ role rules"]
+        MODS["<b>auth · drive · application<br/>resume · knowledgebase<br/>agent · notification</b>"]
+        JOBS["⏱️ Scheduled jobs<br/>review queue · reminders"]
+        EMB["🧮 Local embeddings<br/>MiniLM · ONNX"]
+        SEC --> MODS
+        JOBS --- MODS
+        MODS --- EMB
     end
 
-    subgraph SPRING["☕ Spring Boot — :8081"]
-        direction TB
+    DB[("🐘 <b>PostgreSQL 16</b><br/>+ pgvector<br/>15 Flyway migrations")]
+    LLM["🤖 <b>Claude</b><br/>via Spring AI"]
 
-        subgraph SEC["🔒 Filter chain — before any controller"]
-            direction TB
-            JwtFilter["<b>JwtAuthenticationFilter</b><br/>verify signature + expiry,<br/>load the account,<br/>put the real role in context"]
-            Rules["<b>SecurityConfig</b><br/>method + path vs the rule list<br/>permitAll · authenticated · hasRole"]
-            ErrHandler["<b>JsonAuthenticationErrorHandler</b><br/>401 no/bad token · 403 wrong role"]
-            JwtFilter --> Rules
-            Rules -.->|"refused"| ErrHandler
-        end
+    SPA <==>|"JSON + Bearer token"| PROXY
+    PROXY <==> SEC
+    MODS <==>|"JPA"| DB
+    EMB -.->|"384-dim vectors"| DB
+    MODS <-.->|"tool calls · PDF review"| LLM
 
-        subgraph MVC["🧩 The module owning the path"]
-            direction TB
-            Controller["<b>controller/</b> — HTTP only<br/>@Valid runs Bean Validation,<br/>Optional.empty() becomes 404/409<br/><i>DTOs in and out, never entities</i>"]
-            Service["<b>service/</b> — business rules<br/>@Transactional, readOnly on reads<br/><i>no web types, so a job could<br/>call the same method</i>"]
-            Repo["<b>repository/</b> — Spring Data JPA<br/>derived queries, native SQL for<br/>arrays and full-text"]
-            Entity["<b>model/</b> — JPA entities<br/>ddl-auto: validate, never create"]
-            Controller --> Service --> Repo --> Entity
-        end
-
-        Valid["<b>ValidationErrorHandler</b><br/>adds field → message to every 400"]
-
-        SEC ==>|"authorised"| MVC
-        Controller -.->|"body rejected"| Valid
-    end
-
-    DB[("🐘 <b>PostgreSQL 16 + pgvector</b> — :5433<br/>users · drives · applications<br/>schema owned by Flyway")]
-
-    User -->|"clicks"| Pages
-    Client ==>|"HTTP + JSON<br/>Authorization: Bearer …"| Proxy
-    Proxy ==> JwtFilter
-    Entity ==>|"JDBC via HikariCP"| DB
-
-    DB -.->|"rows"| Entity
-    MVC -.->|"DTO as JSON"| Client
-    ErrHandler -.->|"RFC 9457 problem+json"| Client
-    Valid -.->|"400 + errors map"| Client
-
-    classDef browser fill:#dbeafe,stroke:#1e40af,stroke-width:2px,color:#1e3a8a
-    classDef vite fill:#fef3c7,stroke:#b45309,stroke-width:2px,color:#78350f
-    classDef spring fill:#dcfce7,stroke:#15803d,stroke-width:2px,color:#14532d
-    classDef security fill:#fee2e2,stroke:#b91c1c,stroke-width:2px,color:#7f1d1d
+    classDef client fill:#dbeafe,stroke:#1d4ed8,stroke-width:2px,color:#1e3a8a
+    classDef edge fill:#fef3c7,stroke:#b45309,stroke-width:2px,color:#78350f
+    classDef api fill:#dcfce7,stroke:#15803d,stroke-width:2px,color:#14532d
     classDef data fill:#f3e8ff,stroke:#7e22ce,stroke-width:2px,color:#581c87
-    classDef actor fill:#f1f5f9,stroke:#475569,stroke-width:2px,color:#0f172a
-
-    class Pages,ApiLayer,Client browser
-    class Storage data
-    class Proxy vite
-    class Controller,Service,Repo,Entity,Valid spring
-    class JwtFilter,Rules,ErrHandler security
+    classDef ai fill:#fce7f3,stroke:#be185d,stroke-width:2px,color:#831843
+    class SPA client
+    class PROXY edge
+    class SEC,MODS,JOBS,EMB api
     class DB data
-    class User actor
+    class LLM ai
 ```
 
-**What this diagram is being precise about:**
+**Highlights of the design** - each explained in the [architecture deep dive](docs/ARCHITECTURE.md):
 
-| Claim | Why it matters |
+- 🔒 **Stateless JWT, role re-read from the database on every request** - a promotion takes effect immediately, and the browser refreshes its token to match.
+- 🧩 **Controllers speak HTTP, services speak the domain** - services return `Optional` or throw a reason-carrying exception, so scheduled jobs reuse them untouched.
+- 🛡️ **Two layers of access control** - role rules in the filter chain (`403`), ownership lookups that answer `404` so nobody can confirm another person's records exist.
+- 📬 **A database table as a job queue** - resume reviews survive restarts with no message broker; no connection is held during the slow model call.
+- 🔁 **At-most-once reminders** - a partial unique index makes "never send the same reminder twice" a database rule.
+
+<br/>
+
+## 🧠 AI and RAG
+
+```mermaid
+flowchart LR
+    PDF["📄 Job-description PDF"] --> SPLIT["split into<br/>~200-token passages"]
+    SPLIT --> EMBED["embed locally<br/>all-MiniLM-L6-v2"]
+    EMBED --> PG[("🐘 pgvector<br/>HNSW · cosine")]
+    Q["💬 a question"] --> QE["embed the same way"] --> PG
+    PG --> SEARCH["🔍 Search panel<br/>ranked by meaning"]
+    PG --> TOOL["🤖 Assistant tool<br/>searchJobDescriptions"]
+    PG --> REVIEW["📄 Resume review<br/>context for the prompt"]
+    TOOL --> CLAUDE["Claude answers<br/>from real passages"]
+    REVIEW --> CLAUDE
+```
+
+| | How it works |
 | --- | --- |
-| **The token travels on every request, not just at login.** | `api/client.ts` attaches `Authorization: Bearer <token>` to all calls. There is no session and no cookie; the server keeps nothing between requests. |
-| **The role is re-read from the database on every request.** | `JwtAuthenticationFilter` does not trust the `role` claim inside the token. A promotion, or an account that has been changed, takes effect on the *next* request rather than whenever the token happens to expire (up to 24 hours later). The browser catches up too: when the profile and the token disagree, it fetches a fresh token from `/api/auth/refresh`, so the new pages appear without signing in again. |
-| **A 401 or 403 never reaches a controller.** | `SecurityConfig`'s rules run inside the filter chain, before dispatch. A student calling a PIC-only endpoint is refused there; the controller method never executes, so it needs no role check of its own. |
-| **Controllers never see or return an entity.** | Everything crossing the HTTP boundary is a DTO. `model/` (the database shape) and `dto/` (the public API shape) are free to change on different days without one breaking the other. |
-| **Services return `Optional`/`boolean`, never a status code.** | Deciding that absent means `404`, or that a clash means `409`, is the controller's job. The same service method stays callable from a future scheduled job or CLI command with no HTTP request in sight. |
-| **The frontend's role checks are convenience, never security.** | Hiding "Post a drive" from a student is a nicety. The thing that actually stops them is the backend answering `403` — which is exactly what the test suite asserts. |
-| **No CORS configuration exists anywhere.** | The Vite proxy makes the browser see a single origin. Remove the proxy and you would need CORS; with it, the question never arises. |
+| **Retrieval (R)** | PDFs are read with PDFBox, split by tokens, embedded **inside the JVM** and stored in pgvector with an HNSW index. A search embeds the question the same way and returns the nearest passages by cosine distance. |
+| **Generation (G)** | The assistant's `searchJobDescriptions` tool and the resume reviewer put the retrieved passages in front of Claude, so answers and feedback quote what the job actually asks for. |
+| **Tool calling** | Five `@Tool` methods - eligible drives, all drives, my applications, apply, search. Spring AI runs the loop: the model asks for a tool, the Java method runs, the result goes back. Tools are bound to the signed-in student, so the model can never reach anyone else's data. |
+| **Structured output** | The resume review comes back as JSON parsed straight into a Java record - score, summary, strengths, improvements - with the score clamped to 0-100. |
 
-### 2. Signing in — and the two doors
+<br/>
 
-There is one login endpoint. The Student and Administration tabs are the *same* HTTP call;
-what differs is what the frontend does with the answer. The backend cannot enforce the
-split, because which tab was clicked is not something it has any reason to know before the
-password has even been checked.
+## 🛠️ Tech stack
 
-```mermaid
-sequenceDiagram
-    autonumber
-    actor U as User
-    participant L as Login page
-    participant A as AuthController
-    participant S as AuthService
-    participant DB as PostgreSQL
+<p align="center">
+  <img src="https://skillicons.dev/icons?i=java,spring,maven,postgres,react,ts,vite,tailwind,docker,nginx,githubactions,postman&perline=12" alt="Java, Spring, Maven, PostgreSQL, React, TypeScript, Vite, Tailwind CSS, Docker, nginx, GitHub Actions, Postman"/>
+</p>
 
-    U->>L: pick a tab, submit email + password
-    L->>A: POST /api/auth/login
-    Note over L,A: Public route — no token needed
-    A->>S: login(request)
-    S->>DB: findByEmail(lowercased)
-
-    alt unknown email OR wrong password
-        DB-->>S: absent / hash mismatch
-        S-->>A: Optional.empty()
-        A-->>L: 401 "Invalid email or password"
-        Note over A,L: Identical for both cases, on purpose:<br/>naming which one failed would reveal<br/>who is registered
-        L-->>U: show error, stay on form
-    else credentials correct
-        DB-->>S: user row
-        S->>S: generateToken(email, role)
-        S-->>A: AuthResponse(token, role, expiresAt)
-        A-->>L: 200 + AuthResponse
-        L->>L: setToken() → localStorage
-
-        alt Administration tab, role ≠ TNP_PIC
-            L->>L: logout() — discard that token
-            L-->>U: "Not an administration account"
-            Note over L,U: Password WAS correct. Token is thrown<br/>away anyway — leaving it would make the<br/>next page load act signed-in
-        else Student tab, or Admin tab + TNP_PIC
-            L-->>U: navigate to /drives
-        end
-    end
-```
-
-The **Administration** tab is enforced against `TNP_PIC`, and the **Recruiter** tab the same
-way against `RECRUITER`. The **Student** tab is the original, unrestricted form: it accepts
-any account, including a coordinator or a PIC, exactly as it did before the toggle existed. A coordinator was never given a door of
-their own, so locking them out of the one they already used would have been a regression,
-not a feature.
-
-### 3. Who may call what
-
-The rule list in `SecurityConfig` in one picture. Everything not drawn here falls through
-to `anyRequest().authenticated()` — a default deny, so a new endpoint is locked until a
-rule is written for it.
-
-Roles are cumulative *up to the coordinator* — a coordinator is a student who also runs the
-board, so they keep every student endpoint. The recruiter and the person in charge break
-the chain: neither is a student, so they hold the hiring tools (and, for the PIC, their own
-extras) but none of the student tier.
-
-```mermaid
-flowchart TD
-    T0["<b>🚫 NO TOKEN</b><br/>━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━<br/>POST /api/auth/register<br/>POST /api/auth/login<br/>GET /actuator/health<br/><br/><i>everything else → 401</i>"]
-
-    T1["<b>🎓 STUDENT</b><br/>━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━<br/>GET · PUT /api/users/me<br/>GET /api/drives<br/>GET /api/drives/{id}<br/>GET /api/drives/eligible<br/>POST /api/applications<br/>GET /api/applications/me<br/>POST /api/applications/{id}/withdraw<br/>/api/resumes/** · /api/agent/**"]
-
-    T2["<b>📋 TNP_COORDINATOR</b> — the above, plus<br/>━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━<br/>POST /api/drives<br/>PUT /api/drives/{id}<br/>DELETE /api/drives/{id}<br/>GET /api/applications/drive/{driveId}<br/>PATCH /api/applications/{id}/status"]
-
-    TR["<b>💼 RECRUITER</b> — hiring tools only<br/>━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━<br/>the drive and applicant tools,<br/>for drives they posted only<br/>and the Recruiter sign-in tab<br/><br/><i>but NOT the student tier — a company<br/>contact, so no profile and no applying</i>"]
-
-    T3["<b>⭐ TNP_PIC</b> — the hiring tools, plus<br/>━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━<br/>POST /api/users/{id}/promote<br/>POST /api/users/recruiters<br/>GET /api/users<br/>PUT /api/users/me/staff-profile<br/>and the Administration sign-in tab<br/><br/><i>but NOT the student tier — faculty,<br/>so no CGPA and no applying</i>"]
-
-    T0 -->|"register"| T1
-    T1 -->|"promoted by a PIC —<br/>keeps every student ability"| T2
-    T3 -->|"creates the account —<br/>company email"| TR
-    T2 -->|"seeded in the database only —<br/>no API route grants this"| T3
-
-    T1 -.->|"403 — a coordinator's<br/>endpoints are closed"| T2
-    T2 -.->|"403 — the cell cannot<br/>staff itself"| T3
-
-    classDef anon fill:#f1f5f9,stroke:#475569,stroke-width:3px,color:#0f172a
-    classDef stu fill:#dbeafe,stroke:#1e40af,stroke-width:3px,color:#1e3a8a
-    classDef coord fill:#fef3c7,stroke:#b45309,stroke-width:3px,color:#78350f
-    classDef rec fill:#d1fae5,stroke:#047857,stroke-width:3px,color:#064e3b
-    classDef pic fill:#fee2e2,stroke:#b91c1c,stroke-width:3px,color:#7f1d1d
-
-    class T0 anon
-    class T1 stu
-    class T2 coord
-    class TR rec
-    class T3 pic
-```
-
-Two details worth reading twice:
-
-- **`/me` paths carry no id.** `GET /api/users/me` takes the account from the verified
-  token, so there is no parameter a caller could change to read somebody else's profile.
-  The only endpoint that names another account is promotion, and that is exactly why it is
-  restricted to the person in charge.
-- **Withdrawing is scoped by two keys.** `ApplicationService.withdraw` looks the row up by
-  `(id, studentId)` together. Guessing another student's application id does not return a
-  `403` — it returns a `404`, because the row simply does not match. A `403` would confirm
-  the id exists.
-
-### 4. The life of an application
-
-A student applies; the cell decides. The one loop in this diagram is the part that changed
-most recently: a withdrawal is no longer a dead end.
-
-```mermaid
-stateDiagram-v2
-    direction TB
-
-    [*] --> APPLIED: student clicks Apply<br/>POST /api/applications
-
-    APPLIED --> SHORTLISTED: cell · PATCH status
-    APPLIED --> REJECTED: cell · PATCH status
-    APPLIED --> SELECTED: cell · PATCH status
-    SHORTLISTED --> SELECTED: cell · PATCH status
-    SHORTLISTED --> REJECTED: cell · PATCH status
-
-    APPLIED --> WITHDRAWN: student pulls out<br/>POST /{id}/withdraw
-    SHORTLISTED --> WITHDRAWN: student pulls out
-
-    WITHDRAWN --> APPLIED: student applies again<br/>same row reopens, note cleared,<br/>appliedAt reset to now
-
-    SELECTED --> [*]
-    REJECTED --> [*]
-
-    note right of WITHDRAWN
-        UNIQUE (student_id, drive_id) means there is
-        never a second row for the same pair, so
-        "apply again" has to mean "reopen this row".
-        Only WITHDRAWN reopens — applying again after
-        REJECTED is a 409, because that was a decision
-        the cell made, not one to quietly erase.
-    end note
-
-    note right of APPLIED
-        A student can only ever reach APPLIED and
-        WITHDRAWN. Every other transition is the
-        hiring side's, enforced by SecurityConfig
-        restricting PATCH .../status to staff.
-        Only APPLIED and SHORTLISTED can be withdrawn,
-        and a WITHDRAWN one cannot be decided.
-    end note
-```
-
-Applying checks, in order: the drive exists (`404` otherwise), there is no active
-application already, the deadline has not passed, the profile is complete, and the stored
-marks meet the drive's criteria - the same eligibility query as "Eligible for me" (`409`
-for each of those). The checks live in `ApplicationService.apply`, so the Apply button
-and the assistant's `applyToDrive` tool follow exactly the same rules. Every status
-change sends the student a notification.
-
-### 5. The data model
-
-Three tables. The `applications` table is the only one with real foreign keys, because it
-is the only one that refers to anything else.
-
-```mermaid
-erDiagram
-    USERS ||--o{ APPLICATIONS : "submits"
-    DRIVES ||--o{ APPLICATIONS : "receives"
-
-    USERS {
-        bigint id PK
-        varchar email UK "lowercased on write"
-        varchar password_hash "BCrypt"
-        varchar role "STUDENT or the two TNP roles"
-        numeric cgpa "student only"
-        varchar branch "student only, uppercase"
-        numeric tenth_percentage "student only"
-        numeric twelfth_percentage "student only"
-        integer backlogs "NOT NULL, default 0"
-        varchar designation "PIC only"
-        varchar department "PIC only"
-        varchar staff_id UK "PIC only"
-        varchar office_location "PIC only"
-        varchar phone_number "PIC only"
-        timestamptz created_at
-        timestamptz updated_at
-    }
-
-    DRIVES {
-        bigint id PK
-        varchar company_name "NOT NULL"
-        varchar role "the job title"
-        numeric ctc "CHECK gt 0"
-        integer tier "NOT NULL"
-        numeric cgpa_cutoff "null means no rule"
-        numeric tenth_cutoff "null means no rule"
-        numeric twelfth_cutoff "null means no rule"
-        boolean backlogs_allowed "NOT NULL"
-        integer max_backlogs "null means no cap"
-        varchar eligible_branches "array, NOT NULL"
-        timestamptz application_deadline "indexed"
-        text description "nullable"
-        timestamptz created_at
-        timestamptz updated_at
-    }
-
-    APPLICATIONS {
-        bigint id PK
-        bigint student_id FK "to users"
-        bigint drive_id FK "to drives, CASCADE"
-        varchar status "APPLIED to WITHDRAWN"
-        text note "the cell's comment"
-        timestamptz applied_at "reset on reopen"
-        timestamptz updated_at
-    }
-```
-
-**Why the columns sit where they do.** All three kinds of account live in one `users`
-table, which keeps sign-in a single lookup rather than a search across three tables. The
-cost is columns that only apply to some rows, and the schema is explicit about that rather
-than relying on convention:
-
-- `cgpa`, `branch`, `tenth_percentage`, `twelfth_percentage` are the student's, and are
-  nullable because an account exists from the moment it registers while the marks are
-  filled in afterwards.
-- `designation`, `department`, `staff_id`, `office_location`, `phone_number` belong to the
-  person in charge alone, enforced by a `CHECK` constraint —
-  `role = 'TNP_PIC' OR (all five IS NULL)`. A coordinator or a student cannot hold these
-  even if a future bug tries to write them.
-- `applications.drive_id` cascades on delete, because an application with no drive behind
-  it is clutter rather than history. `student_id` does not cascade: there is no way to
-  delete an account in this application yet, and refusing the delete is the safer default
-  to revisit deliberately if that ever changes.
-
-## Prerequisites
-
-| Tool | Version |
+| Layer | Technology |
 | --- | --- |
-| JDK | 21 |
-| Node.js | 24 or newer |
-| Docker Desktop | running |
+| **Backend** | Java 21 · Spring Boot 4.1 · Spring Web MVC · Spring Security 7 + JWT (jjwt) · Spring Data JPA · Bean Validation · Flyway |
+| **AI** | Spring AI 2.0 · Anthropic Claude (chat, tool calling, native PDF reading) · all-MiniLM-L6-v2 via ONNX Runtime · PDFBox |
+| **Data** | PostgreSQL 16 · pgvector (HNSW, cosine) |
+| **Frontend** | React 19 · TypeScript · Vite · React Router 7 · Axios · Tailwind CSS 4 |
+| **Testing** | JUnit · Mockito · MockMvc · Testcontainers · Vitest · React Testing Library · Postman |
+| **Delivery** | Docker multi-stage images · nginx · Docker Compose · GitHub Actions |
 
-## Quick start
+<br/>
 
-Start the database first - both the backend and its tests need PostgreSQL.
+## 🚀 Quick start
 
-```powershell
-docker compose up -d
-```
+**Everything in Docker** - only Docker needed:
 
-Backend (http://localhost:8081):
-
-```powershell
-cd backend
-.\mvnw.cmd spring-boot:run
-```
-
-Frontend (http://localhost:5173):
-
-```powershell
-cd frontend
-npm install
-npm run dev
-```
-
-Open http://localhost:5173, register with a college address, fill in your profile, and the
-drives board will show what you qualify for.
-
-### Everything in Docker
-
-The whole application - database, backend and frontend - can also run in containers, with
-no JDK or Node installed:
-
-```powershell
+```bash
+git clone https://github.com/RishitheB0T/placement-prep.git
+cd placement-prep
 docker compose --profile app up -d --build
 ```
 
-Then open **http://localhost:3000**. The frontend container is nginx serving the built
-React app and forwarding `/api` to the backend container, so the browser sees one address,
-exactly as with the Vite proxy in development. Without `--profile app`, `docker compose
-up -d` still starts only the database. Set `ANTHROPIC_API_KEY` in your shell first to
-switch on the AI features. The backend's first start downloads the embedding model (about
-350 MB with its PyTorch library) into the `placementprep-backend-data` volume, so later
-starts are quick.
+Open **http://localhost:3000** and sign in on the **Administration** tab as the seeded
+person in charge - `tnp@pic.nits.ac.in` / `9676596160` - then post a drive, or register a
+student with any `name@<dept>.nits.ac.in` address. Set `ANTHROPIC_API_KEY` before starting
+to switch on resume feedback and the assistant; semantic search works without it.
 
-Run either this or the mvnw backend against the database, not both at once: each one runs
-the resume-review job, and that queue assumes a single backend.
+<details>
+<summary><b>Development mode</b> - hot reload for backend and frontend</summary>
 
-### Ports
-
-PostgreSQL is published on host port **5433**, not the usual 5432, and the backend listens
-on **8081**, not 8080. Both defaults avoid clashing with software that commonly holds those
-ports. Override with the `DB_URL`, `DB_USERNAME`, `DB_PASSWORD` and `SERVER_PORT`
-environment variables; the container itself still uses 5432 internally.
-
-### Configuration
-
-Nothing secret is committed. Every value below has a local default that matches
-`docker-compose.yml`, and is overridden by an environment variable in a real deployment.
-
-| Variable | Default | Purpose |
-| --- | --- | --- |
-| `DB_URL` | `jdbc:postgresql://localhost:5433/placementprep` | database connection |
-| `DB_USERNAME` / `DB_PASSWORD` | `placementprep` | database credentials |
-| `SERVER_PORT` | `8081` | backend port |
-| `JWT_SECRET` | a local development placeholder | token signing key |
-| `JWT_EXPIRATION` | `86400000` (24 hours) | token lifetime in milliseconds |
-| `ANTHROPIC_API_KEY` | empty | turns on resume feedback and the assistant |
-| `ANTHROPIC_MODEL` | `claude-opus-5-5` | the model both use |
-| `RESUME_STORAGE_DIR` | `uploads/resumes` | where uploaded PDFs are kept |
-| `RESUME_REVIEW_POLL_DELAY` | `PT5S` | how often the review job checks for new resumes |
-| `NOTIFICATION_INITIAL_DELAY` | `PT1M` | first deadline-reminder run after startup |
-| `NOTIFICATION_POLL_DELAY` | `PT15M` | wait between reminder runs |
-| `EMBEDDING_CACHE_DIR` / `DJL_CACHE_DIR` | under your home folder | where the local embedding model is cached |
-
-`JWT_SECRET` **must** be set to a random private value anywhere real. It is validated at
-startup: shorter than 32 characters and the application refuses to boot, naming the
-property, rather than failing later inside the signing library.
-
-## Commands
-
-| What | Where | Command |
-| --- | --- | --- |
-| Start database | root | `docker compose up -d` |
-| Stop database | root | `docker compose down` |
-| Reset database (deletes data) | root | `docker compose down -v` |
-| Run the whole app in Docker | root | `docker compose --profile app up -d --build` |
-| Stop the whole app | root | `docker compose --profile app down` |
-| Run backend tests | `backend/` | `.\mvnw.cmd test` |
-| Full backend build + tests | `backend/` | `.\mvnw.cmd verify` |
-| Run backend | `backend/` | `.\mvnw.cmd spring-boot:run` |
-| Run frontend | `frontend/` | `npm run dev` |
-| Build frontend | `frontend/` | `npm run build` |
-| Run frontend tests | `frontend/` | `npm test` |
-| Frontend tests, watching | `frontend/` | `npm run test:watch` |
-
-On macOS or Linux use `./mvnw` instead of `.\mvnw.cmd`.
-
-## Authentication and roles
-
-Login exchanges an email and password for a **JSON Web Token (JWT)**, which the client
-then sends on every request as `Authorization: Bearer <token>`.
-
-The token's payload is signed, not encrypted - anyone holding one can read what is inside
-it, so nothing confidential goes in a claim. The signature makes it tamper-evident: a
-student can read their own role but cannot change it without invalidating the token.
-
-The role travels in the token purely as a convenience for the client. **The server never
-trusts it** and re-reads the real role from the database on every request, so a revoked
-privilege takes effect on the next call rather than whenever the token happens to expire.
-
-### The four roles
-
-| Role | May do |
-| --- | --- |
-| `STUDENT` - shown as **Student** | read the board, see their own eligible drives, edit their own academic profile, apply to and withdraw from drives, resume feedback, the AI assistant |
-| `TNP_COORDINATOR` - shown as **Coordinator** | everything a student may, plus create, edit and delete drives, upload job-description PDFs, and review/decide applications |
-| `RECRUITER` - shown as **Recruiter** | a company's hiring contact: create, edit and delete **their own** drives, upload job-description PDFs for them, and review/decide applications to them - other drives are invisible. **Not a student** - no academic profile, cannot apply, no resume feedback or assistant. Signs in with a company email on the Recruiter tab |
-| `TNP_PIC` - shown as **Admin** | manages the board and applications like a recruiter, plus adds recruiters, promotes students to coordinator, lists every account, edits their own staff details, and uses the Administration sign-in. **Not a student** - holds no CGPA, cannot apply to drives |
-
-The code and the database keep the original names; the UI shows the plain words for what
-each account does. In the browser, `ProtectedRoute` also takes a list of roles per route,
-so each role gets its own set of pages - a student is sent back from `/post-drive`, and a
-recruiter or the admin from `/resumes` and `/assistant`. That is a convenience; the
-backend's 403 is what actually enforces it. The two role lists live in one place on each
-side: `MANAGERS` and `STUDENTS` in `SecurityConfig`, mirrored in `frontend/src/api/roles.ts`.
-
-**A coordinator is a student.** They are a final-year student who also helps run the cell,
-so they keep everything a student has - an academic profile, an eligibility list, the
-ability to apply to and withdraw from drives - and gain the board and applicant tools on
-top. The interface reflects that: a coordinator sees the "Eligible for me" tab and an
-**Apply** button *and* a **Delete** button on the same drive card, and gets both a "My
-applications" and an "Applicants" tab.
-
-The recruiter and the person in charge are the exceptions. A recruiter works for a company
-and the PIC is faculty; neither is a student, which is why the backend answers `403` when
-either tries to apply, and why the UI gives them no eligibility tab and no Apply button -
-`/api/drives/eligible` would answer `409` for an account with no CGPA anyway. Only the PIC
-gets the staff columns, through the `CHECK` constraint.
-
-Recruiters cannot register themselves: registration is for college addresses only. The PIC
-adds a recruiter with `POST /api/users/recruiters` (a company email and a first password),
-from the **Recruiters** tab of the People panel on the admin dashboard.
-
-**A recruiter sees only their own drives.** Every drive records who posted it
-(`drives.created_by`, added in V14). For a recruiter, the board, a drive by id, editing,
-deleting, uploading a job description, the applicant list, status changes and the
-dashboard counts are all limited to drives they posted - anyone else's drive answers
-`404`, exactly like one that does not exist, so a recruiter cannot even learn which ids
-other companies' drives have. Job-description search spans every company, so it is closed
-to recruiters (`403`). Coordinators and the PIC still see the whole board, recruiters'
-drives included.
-
-How it is built: `UserProfileDTO.driveScope()` turns the signed-in account into a scope -
-the recruiter's own id, or empty for every other role - and the controllers pass that to
-`DriveService`, where one private `findVisible(id, scope)` applies the rule for every
-scoped read and write. Services still never see a web type or a role, just an optional id.
-
-So "is this account management?" and "is this account a student?" are two independent
-questions, and the frontend asks them separately rather than collapsing both into one
-`isStaff` flag - doing that is precisely what once left coordinators unable to apply to
-anything.
-
-Registration always creates a `STUDENT`. There is deliberately no role field on the
-registration request - if clients could choose, anyone could sign up as staff and publish
-fake drives. Coordinators are promoted from existing students by the person in charge
-(PIC), and a PIC is seeded directly into the database, because anyone who could grant that
-role through the API would already need to hold it.
-
-### College addresses only
-
-Registration is restricted to college email addresses of the form `*@*.nits.ac.in`. A
-department subdomain is required, so `name@cse.nits.ac.in` is accepted and the bare
-`name@nits.ac.in` is not. The check requires a dot immediately before `nits.ac.in`, which
-is what stops a lookalike domain such as `notnits.ac.in` from passing a naive suffix test.
-
-### Signing in as the person in charge
-
-`V8__seed_person_in_charge.sql` inserts the first `TNP_PIC` account directly, so a fresh
-database already has someone who can post a drive and promote others - no manual SQL
-needed:
-
-| Email | Password |
-| --- | --- |
-| `tnp@pic.nits.ac.in` | `9676596160` |
-
-The sign-in page has three tabs, **Student**, **Recruiter** and **Administration**. The
-Student and Administration tabs both accept this account; the other two are *enforced*,
-each against its one role:
-
-- **Administration tab** — if the credentials belong to anyone but `TNP_PIC`, the token
-  that was just issued is discarded and the form says so. The password was correct; the
-  wrong door was used.
-- **Recruiter tab** — the same, against `RECRUITER`.
-- **Student tab** — the original, unrestricted form. It accepts any account, including a
-  coordinator or the PIC. A coordinator was never given a door of their own, so locking
-  them out of the one they already used would be a regression rather than a feature.
-
-The backend has no separate administration endpoint and cannot have one: which tab was
-clicked is not something the server has any reason to know before the password has even
-been checked. Both tabs `POST /api/auth/login`; the enforcement lives in `Login.tsx`, after
-a valid token comes back, by reading the role it carries.
-
-The stored hash
-was generated with this project's own `BCryptPasswordEncoder` and round-trip verified
-with `encoder.matches(...)` before being written into the migration, not typed by hand -
-a hash that does not actually match its password is a seed account that quietly cannot
-log in. That password is a local-development placeholder committed on purpose for this
-seed row; it is not meant to guard anything real, which is also why registration itself
-stays gated to college addresses rather than accepting arbitrary emails.
-
-A signed-in `TNP_PIC` promotes further students to `TNP_COORDINATOR` through the API:
-
-```sql
--- only needed if you want a second PIC account; coordinators are promoted through
--- POST /api/users/{id}/promote instead, once signed in as the seeded PIC above
-UPDATE users SET role = 'TNP_PIC' WHERE email = 'you@cse.nits.ac.in';
+```bash
+docker compose up -d                                  # PostgreSQL + pgvector on :5433
+cd backend  && ./mvnw spring-boot:run                 # API on :8081  (Windows: .\mvnw.cmd)
+cd frontend && npm install && npm run dev             # app on :5173
 ```
 
-## API
+Configuration, ports and every command are in the [development guide](docs/DEVELOPMENT.md).
+</details>
 
-All paths require `Authorization: Bearer <token>` unless marked public.
+<br/>
 
-### Accounts
+## ✅ Quality
 
-| Method | Path | Purpose | Success |
-| --- | --- | --- | --- |
-| `POST` | `/api/auth/register` | create a student account, returns a token | `201` / `409` |
-| `POST` | `/api/auth/login` | exchange credentials for a token | `200` / `401` |
-| `GET` | `/api/users/me` | the signed-in user and their profile | `200` |
-| `PUT` | `/api/users/me` | replace my academic details - **students and coordinators** | `200` / `403` |
-| `PUT` | `/api/users/me/staff-profile` | replace my staff details - **PIC only** | `200` / `403` |
-| `POST` | `/api/users/{id}/promote` | make a student a coordinator - **PIC only** | `200` / `404` / `409` |
-| `POST` | `/api/users/recruiters` | add a company recruiter, `{email, password}` - **PIC only** | `201` / `409` |
-| `GET` | `/api/users?role=` | every account, optionally one role - **PIC only** | `200` / `400` |
-| `POST` | `/api/auth/refresh` | a fresh token with the account's current role (used after a promotion) | `200` / `401` |
-| `PUT` | `/api/users/me/password` | change my own password, `{currentPassword, newPassword}` - any role | `204` / `400` |
-| `POST` | `/api/users/{id}/password` | set a new password for someone who forgot theirs, `{newPassword}` - **PIC only** | `204` / `404` |
-
-`/api/auth/register` and `/api/auth/login` are public, as is `/actuator/health`.
-
-There is no email-based "forgot password" - that needs a mail server and a mail library.
-Instead the person in charge sets a temporary password from the People panel, and the
-owner changes it on their Profile page.
-
-A failed login is a flat `401` with no detail. Distinguishing "no such account" from
-"wrong password" would turn the endpoint into a way to discover which addresses are
-registered.
-
-### Profile fields
-
-Sent to `PUT /api/users/me`. All are required, and the eligibility filter needs them
-before it can return anything.
-
-| Field | Notes |
+| | |
 | --- | --- |
-| `cgpa` | 0-10 |
-| `branch` | e.g. `CSE`; stored upper-cased |
-| `tenthPercentage`, `twelfthPercentage` | 0-100 |
-| `backlogs` | active backlogs; 0 or more |
+| 🧪 **224 backend tests** | Integration tests on **real PostgreSQL + pgvector** (Testcontainers) with real signed JWTs; unit tests for every service; the AI tool-calling loop tested against a fake Anthropic server |
+| 🧪 **89 frontend tests** | Vitest + React Testing Library - every role gets exactly the controls it should |
+| 📮 **85 Postman requests** | Every endpoint, each restricted one called by a role that may and one that may not - 114 assertions |
+| 🔁 **CI** | GitHub Actions builds and tests backend and frontend on every push |
+| 🧹 **Lint** | oxlint - 0 warnings |
 
-The response also carries a computed `complete` boolean, so the UI can prompt a student to
-finish their profile without re-implementing the same checks. It reflects the *academic*
-fields only - a PIC has no CGPA to be missing, and nothing gates a feature behind their
-staff details being filled in.
+<br/>
 
-### Staff fields
-
-Sent to `PUT /api/users/me/staff-profile`, and **restricted to `TNP_PIC`** - a coordinator
-gets a `403` here exactly like a student does.
-
-| Field | Notes |
-| --- | --- |
-| `designation` | e.g. `Training & Placement Officer`; max 100 chars |
-| `department` | the department or cell they belong to; max 100 chars |
-| `staffId` | institutional staff id; max 50 chars, unique across accounts |
-| `officeLocation` | cabin or room; max 100 chars |
-| `phoneNumber` | contact number; max 20 chars |
-
-Every field is optional, unlike the academic profile: nothing in the system depends on a
-PIC's details being complete, so there is no all-or-nothing rule to enforce. `PUT` still
-replaces the whole sub-resource, so a field left out or sent blank becomes `null`.
-
-These five columns live on the same `users` table as everything else, guarded by a `CHECK`
-constraint - `role = 'TNP_PIC' OR (all five IS NULL)`. A student or a coordinator cannot
-hold them even if a future bug tries to write them, and `GET /api/users/me` returns them as
-`null` for those accounts.
-
-### Drives
-
-Base path `/api/drives`.
-
-| Method | Path | Purpose | Who | Success |
-| --- | --- | --- | --- | --- |
-| `GET` | `/api/drives` | all drives, newest first | any signed-in user | `200` |
-| `GET` | `/api/drives/eligible` | drives **I** qualify for | any signed-in user | `200` / `409` |
-| `GET` | `/api/drives/{id}` | one drive | any signed-in user | `200` / `404` |
-| `POST` | `/api/drives` | post a drive | PIC, coordinator, recruiter | `201` |
-| `PUT` | `/api/drives/{id}` | replace a drive | PIC, coordinator, recruiter | `200` / `404` |
-| `DELETE` | `/api/drives/{id}` | remove a drive | PIC, coordinator, recruiter | `204` / `404` |
-
-`/api/drives/eligible` takes no parameters. It reads the marks from the signed-in user's
-own profile, so one student can never enumerate what another would qualify for. It answers
-`409` when the caller's profile is not filled in yet - though the web UI checks the
-`complete` flag it already holds and skips the call rather than firing a request it knows
-will be refused.
-
-In the web UI, posting and editing share one form: `/post-drive` creates, and
-`/drives/{id}/edit` loads an existing drive into the same fields. `DriveRequest` serves
-both `POST` and `PUT`, so a second form would only be the same fields twice, free to
-drift apart.
-
-A drive is returned when **every** condition holds:
-
-- the student meets `cgpaCutoff`, `tenthCutoff` and `twelfthCutoff` - a cutoff left unset
-  on the drive imposes no requirement
-- the student's branch appears in `eligibleBranches`, matched case-insensitively
-- the student has no backlogs, or the drive permits backlogs and the student is within
-  `maxBacklogs`
-- `applicationDeadline` has not passed
-
-Results are ordered by deadline, soonest first.
-
-### Drive fields
-
-| Field | Required | Notes |
-| --- | --- | --- |
-| `companyName`, `role` | yes | non-blank |
-| `ctc` | yes | positive, in rupees per annum |
-| `tier` | yes | |
-| `cgpaCutoff` | yes | minimum CGPA |
-| `tenthCutoff`, `twelfthCutoff` | no | minimum percentage, 0-100. Omit to set no requirement |
-| `backlogsAllowed` | yes | whether students with active backlogs may apply |
-| `maxBacklogs` | only when `backlogsAllowed` is true | how many are tolerated; omit for no ceiling |
-| `eligibleBranches` | yes | non-empty list, e.g. `["CSE","ECE"]` |
-| `applicationDeadline` | yes | ISO-8601 instant |
-| `description` | no | free text |
-
-Example, as a coordinator:
-
-```powershell
-curl.exe -X POST http://localhost:8081/api/drives `
-  -H "Authorization: Bearer $token" -H "Content-Type: application/json" -d '{
-  \"companyName\": \"Zoho Corporation\", \"role\": \"Member Technical Staff\",
-  \"ctc\": 900000, \"tier\": 1, \"cgpaCutoff\": 7.5,
-  \"tenthCutoff\": 75.0, \"twelfthCutoff\": 70.0,
-  \"backlogsAllowed\": false,
-  \"eligibleBranches\": [\"CSE\", \"ECE\", \"IT\"],
-  \"applicationDeadline\": \"2026-12-20T18:00:00Z\"}'
-```
-
-### Applications
-
-Base path `/api/applications`.
-
-| Method | Path | Purpose | Who | Success |
-| --- | --- | --- | --- | --- |
-| `POST` | `/api/applications` | apply to a drive | student, coordinator | `201` / `404` / `409` |
-| `GET` | `/api/applications/me` | my own applications | student, coordinator | `200` |
-| `GET` | `/api/applications/drive/{driveId}` | everyone who applied to a drive | PIC, coordinator, recruiter | `200` |
-| `PATCH` | `/api/applications/{id}/status` | move an application along | PIC, coordinator, recruiter | `200` / `400` / `404` / `409` |
-| `POST` | `/api/applications/{id}/withdraw` | pull out of a drive | student, coordinator | `200` / `404` / `409` |
-
-`POST /api/applications` takes only `{"driveId": ...}` - the student comes from the
-signed-in account, never from the body, so nobody can apply on someone else's behalf.
-There is a real `UNIQUE (student_id, drive_id)` constraint in the database, so there is
-never more than one application row per student per drive - a second `POST` either
-reopens that row or is refused, depending on its current status:
-
-- if it is `WITHDRAWN`, applying **reopens the same row**: status goes back to `APPLIED`,
-  the note from the withdrawn cycle is cleared, and `appliedAt` is reset to now, so the
-  application does not misleadingly look months old the moment it becomes active again
-- for any other status - `APPLIED`, `SHORTLISTED`, `REJECTED`, `SELECTED` - a second
-  `POST` is a `409`. Only a withdrawal is undoable this way; a rejection is a decision
-  the cell already made, not a state a second `POST` should quietly erase
-
-Status is one of `APPLIED`, `SHORTLISTED`, `REJECTED`, `SELECTED`, `WITHDRAWN`. A student
-can move it to `APPLIED` (by applying, including re-applying after a withdrawal) and to
-`WITHDRAWN` (by withdrawing); every other transition is the hiring side's call through
-`PATCH .../status`. Three guards keep a decision from being undone:
-
-- only an application still under review (`APPLIED` or `SHORTLISTED`) can be withdrawn -
-  otherwise withdrawing a rejection and applying again would reopen it as `APPLIED` (`409`)
-- the hiring side cannot set `WITHDRAWN` - that is the student's decision (`400`)
-- a withdrawn application cannot be decided (`409`)
-
-Withdrawing someone else's application answers `404`, not `403` - `ApplicationService`
-looks the row up by `(id, studentId)` together, so a guessed id that belongs to another
-student simply does not match, and the response never confirms that an application with
-that id exists at all.
-
-### Notifications
-
-Base path `/api/notifications`. Students and coordinators only - nobody else receives any.
-
-| Method | Path | Purpose | Success |
-| --- | --- | --- | --- |
-| `GET` | `/api/notifications/me` | my newest 50, newest first | `200` |
-| `POST` | `/api/notifications/{id}/read` | mark one of mine read | `200` / `404` |
-| `POST` | `/api/notifications/read-all` | mark all of mine read | `204` |
-
-Kinds: `NEW_DRIVE` (an open drive you are eligible for), `DEADLINE_3_DAYS` and
-`DEADLINE_1_DAY` (that drive closes soon and you have not applied), and `STATUS_CHANGED`
-(you were shortlisted, rejected or selected). `DeadlineReminderJob` sends the first three:
-a minute after startup and every 15 minutes after, it takes each student with a complete
-profile, their eligible open drives, skips any they applied to, and sends at most one of
-each kind per drive - a unique index in V15 makes "at most once" a database rule.
-`STATUS_CHANGED` is written by `ApplicationService` in the same transaction as the change.
-
-### Errors
-
-Every error is [RFC 9457 Problem Details](https://www.rfc-editor.org/rfc/rfc9457) JSON, so
-one client-side handler covers the whole API. A body-validation failure also names the
-offending fields:
-
-```json
-{
-  "title": "Bad Request",
-  "status": 400,
-  "detail": "Invalid request content.",
-  "instance": "/api/auth/register",
-  "errors": { "email": "Registration is open only to college email addresses ending in .nits.ac.in" }
-}
-```
-
-The rejected value is deliberately never echoed back, since on a registration form the
-submitted body contains a password.
-
-## Layout
+## 📁 Project structure
 
 ```
 placement-prep/
-├── backend/                Spring Boot API (Java 21, Maven)
-│   └── src/main/java/com/rishikesh/placementprep/
-│       ├── common/             Shared building blocks and validation error handling
-│       ├── infrastructure/
-│       │   └── security/       Filter chain, JWT filter, rule config, error handlers
+├── backend/                     Spring Boot API
+│   └── src/main/java/.../placementprep/
+│       ├── infrastructure/          security (JWT, rules) · ai (ChatClient)
 │       └── modules/
-│           ├── auth/           Accounts, login, roles, JWT            (built)
-│           ├── drive/          Placement drives and eligibility       (built)
-│           │   ├── controller/ HTTP endpoints
-│           │   ├── service/    Business logic
-│           │   ├── repository/ Spring Data JPA interfaces
-│           │   ├── model/      JPA entities
-│           │   └── dto/        Request and response records
-│           ├── application/    A student applying, and its status     (built)
-│           ├── resume/         Resume uploads and AI feedback         (planned)
-│           ├── knowledgebase/  RAG over placement notices             (planned)
-│           ├── interview/      AI mock interviews                     (planned)
-│           └── notification/   Notifications and the deadline reminder job
-├── frontend/               React + TypeScript single-page app (Vite)
-│   └── src/
-│       ├── api/                Functions that call the backend
-│       ├── components/         Reusable presentational pieces
-│       └── pages/              Login, Register, Profile, Drives,
-│                                Applications, PostDrive
-└── docker-compose.yml      PostgreSQL with the pgvector extension
+│           ├── auth/                accounts, login, roles, passwords
+│           ├── drive/               drives, eligibility, recruiter scoping
+│           ├── application/         apply, withdraw, decide, statistics
+│           ├── notification/        notifications + deadline reminder job
+│           ├── resume/              upload, review queue, AI reviewer
+│           ├── knowledgebase/       RAG over job descriptions (pgvector)
+│           └── agent/               the assistant and its @Tool methods
+│       (every module: controller · service · repository · model · dto)
+├── frontend/                    React + TypeScript app
+│   └── src/  api/ · components/ · pages/
+├── docs/                        architecture, API, development guide, images
+├── postman/                     collection + sample PDFs
+└── docker-compose.yml           PostgreSQL, and the full app with --profile app
 ```
 
-Every module gets the same five sub-packages as it grows. Controllers accept and return
-DTOs, never entities, so the database schema and the public API stay free to change
-independently. Services return `Optional` or `boolean` to mean "not found" and never
-import a web type, which keeps them callable from a scheduled job or a queue consumer.
+<br/>
 
-## Database
+## 📚 Documentation
 
-The schema is owned by Flyway. Hibernate runs with `ddl-auto: validate` and will never
-create or alter a table. Every schema change is a new migration in
-`backend/src/main/resources/db/migration/`; an applied migration is never edited, because
-Flyway stores a checksum of each file and refuses to start if one changes.
-
-| Migration | Adds |
+| Document | What's inside |
 | --- | --- |
-| `V1__enable_pgvector.sql` | the `vector` extension, for the later RAG feature |
-| `V2__create_drives_table.sql` | the `drives` table |
-| `V3__add_eligibility_criteria_to_drives.sql` | 10th and 12th cutoffs, backlogs allowed flag |
-| `V4__add_max_backlogs_to_drives.sql` | backlog ceiling |
-| `V5__create_users_table.sql` | the `users` table |
-| `V6__add_student_profile_to_users.sql` | CGPA, branch, school percentages, backlogs |
-| `V7__update_user_roles.sql` | splits the single TNP role into coordinator and PIC |
-| `V8__seed_person_in_charge.sql` | inserts the first `TNP_PIC` account, hash pre-verified |
-| `V9__create_applications_table.sql` | the `applications` table, with real foreign keys into `users` and `drives` |
-| `V10__add_pic_staff_details.sql` | PIC-only designation, department, staff id, office, phone - plus the `CHECK` that keeps them off every other role |
-| `V11__create_resumes_table.sql` | the `resumes` table, which doubles as the review job queue |
-| `V12__create_job_description_chunks_table.sql` | the pgvector table of job-description passages, with an HNSW index |
-| `V13__add_recruiter_role.sql` | allows the `RECRUITER` role |
-| `V14__add_created_by_to_drives.sql` | who posted each drive, so a recruiter sees only their own |
-| `V15__create_notifications_table.sql` | students' notifications, with a unique index so a reminder is never sent twice |
+| 🏗️ [**Architecture**](docs/ARCHITECTURE.md) | Every flow with diagrams - request path, sign-in, roles, the application lifecycle, reminders, the review queue, RAG, tool calling, the data model |
+| 📡 [**API reference**](docs/API.md) | All 35 endpoints with roles, fields, status codes and examples |
+| 🧑‍💻 [**Development guide**](docs/DEVELOPMENT.md) | Setup, configuration, commands, testing and CI |
 
-## Testing
+<br/>
 
-```powershell
-cd backend
-.\mvnw.cmd test
-```
+## 🗺️ Roadmap
 
-223 tests on JUnit (Jupiter 6, the line Spring Boot 4 ships) in two kinds:
+- ✅ Drives board with automatic eligibility, search
+- ✅ Applications - apply, withdraw, decide, notes, CSV export
+- ✅ Four roles with JWT, recruiter scoping, admin tools
+- ✅ Notifications and deadline reminders
+- ✅ AI resume feedback, grounded in the job description
+- ✅ AI assistant with tool calling
+- ✅ Semantic search over job descriptions (RAG, pgvector)
+- ✅ Docker images and CI
+- 🔜 Company-wise AI mock interviews
+- 🔜 Q&A over placement notices, with sources
+- 🔜 Email delivery for reminders and password reset
 
-- **Integration tests** (`*ApiTest`) run against a real PostgreSQL container started by
-  Testcontainers using the `pgvector/pgvector:pg16` image, so **Docker must be running**.
-  Nothing is mocked and no test touches the development database. New integration tests
-  should import `TestcontainersConfiguration` rather than pointing at a hand-managed
-  database. `AgentApiTest` points Spring AI at a small fake Anthropic server, so the whole
-  tool-calling loop runs without a paid API key.
-- **Unit tests** (`*ServiceTest`, `AssistantToolsTest`) test one service-layer class with
-  its dependencies replaced by Mockito mocks - no Spring context, no database. Every
-  service class has one: auth, user, drive, application, resume, job-description and the
-  assistant's tools. The one exception is AgentService, whose only job is talking to the
-  model; AgentApiTest covers it end to end instead.
+<br/>
 
-The first run downloads the local embedding model and its runtime (about 350 MB, cached
-in `~/.placementprep/models` and `~/.djl.ai` afterwards).
+<div align="center">
 
-The suite generates real signed tokens rather than stubbing the security context, so the
-JWT filter and the authorisation rules are genuinely exercised - including the cases that
-matter most, such as a student being refused a write and a coordinator being refused a
-promotion.
+Built by **[Rishikesh Kallapally](https://github.com/RishitheB0T)**
 
-### Frontend
-
-```powershell
-cd frontend
-npm test
-```
-
-88 tests on Vitest and React Testing Library, in jsdom. They need no backend and no
-Docker: every call through `src/api` is stubbed, which is also why `vitest.config.ts` is
-a separate file from `vite.config.ts` - the dev config carries a proxy to `:8081`, and a
-test must never quietly pass because a real server happened to be running.
-
-They are aimed squarely at the role branching, because that is where the bugs have
-actually been. The page once collapsed "can this account manage?" and "is this account a
-student?" into one flag and silently stripped coordinators of the ability to apply to
-anything; `Drives.test.tsx` and `Applications.test.tsx` now asserts all three roles get
-exactly the controls they should, so that cannot come back unnoticed.
-
-| File | Covers |
-| --- | --- |
-| `api/client.test.ts` | the token on every request, RFC 9457 unwrapping, clearing on 401 but not 403, bodiless POST, 204 |
-| `pages/Drives.test.tsx` | Apply vs Delete vs Edit per role, Apply only where eligible, search, the re-apply-after-withdraw button, and not calling `/eligible` for an incomplete profile |
-| `pages/Applications.test.tsx` | the coordinator's two tabs, applicant emails, withdraw only while under review, no decisions on a withdrawn one, status changes, CSV export |
-| `pages/Profile.test.tsx` | each role's form, and changing the password |
-| `components/NotificationBell.test.tsx` | the unread count, the list, marking one or all read |
-| `api/auth.test.ts` | refreshing the token when the account's role changed since sign-in |
-| `pages/Login.test.tsx` | the Recruiter and Administration tabs each admitting only their role, and discarding the token when they refuse |
-| `pages/Resumes.test.tsx` | the finished review, retry, refusing a non-PDF before upload, uploading |
-| `pages/Assistant.test.tsx` | chat replies and follow-ups, the "not switched on" message, job-description search |
-| `pages/Dashboard.test.tsx` | each role's own dashboard, and each asking only for what that role may see; the admin promoting a student and adding a recruiter |
-| `components/ProtectedRoute.test.tsx` | each role let into its own pages and sent back from the others |
-
-### Postman
-
-[`postman/placement-prep.postman_collection.json`](postman/placement-prep.postman_collection.json)
-covers every REST endpoint, including the role-based rules: each restricted endpoint is
-called once by a role that may use it and once by one that may not. Import it into
-Postman and run the folders in order against a running backend (set `baseUrl` if it is
-not `http://localhost:8081`); file uploads use the two sample PDFs next to it. Each run
-leaves behind one `postman.<timestamp>@cse.nits.ac.in` account and one recruiter account.
-The 85 requests in 11 folders make 114 assertions, including the apply rules (closed drive,
-unknown drive, decided and withdrawn applications) and the Notifications folder.
-
-## Notes
-
-- The frontend dev server proxies `/api` and `/actuator` to the backend, so there is no
-  CORS configuration anywhere.
-- The token is held in `localStorage`. That is readable by any script on the page, so it
-  trades some XSS exposure for not needing CSRF protection on a cookie; a production
-  deployment would likely move to an httpOnly cookie and add CSRF tokens.
-- Sessions are stateless - no `HttpSession` is ever created, so any instance can serve any
-  request without shared session storage.
+</div>
