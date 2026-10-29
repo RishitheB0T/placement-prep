@@ -33,6 +33,8 @@ export default function PostDrive() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
+  /** Set when the drive being edited could not be loaded - there is then no form to show. */
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   const [form, setForm] = useState({
     companyName: "",
@@ -85,7 +87,10 @@ export default function PostDrive() {
           navigate("/login", { replace: true });
           return;
         }
-        setError(e instanceof ApiError ? e.message : "Could not load the drive");
+        // An empty form for a drive that could not be loaded could only fail on save, so
+        // the page shows the reason instead (a recruiter opening another company's drive
+        // gets a 404 here, exactly like a drive that does not exist).
+        setLoadError(e instanceof ApiError ? e.message : "Could not load the drive");
         setCheckingAccess(false);
       });
   }, [navigate, editingId]);
@@ -150,6 +155,7 @@ export default function PostDrive() {
 
   return (
     <>
+      <title>{`${isEditing ? "Edit drive" : "Post a drive"} · Placement Prep`}</title>
       <AppHeader profile={profile} active="post-drive" />
 
       <main className="mx-auto max-w-4xl px-4 pt-8 pb-16">
@@ -158,10 +164,19 @@ export default function PostDrive() {
             <Spinner className="size-5 text-violet-500" />
             Loading...
           </div>
+        ) : loadError ? (
+          <div className="py-10">
+            <p role="alert" className="alert-error animate-pop">
+              {loadError}
+            </p>
+            <button onClick={() => navigate("/drives")} className="btn btn-secondary mt-6">
+              Back to drives
+            </button>
+          </div>
         ) : (
           <>
             <PageHero
-              eyebrow="Training and placement cell"
+              eyebrow={profile?.role === "RECRUITER" ? "Recruiter" : "Training and placement cell"}
               title={isEditing ? "Edit drive" : "Post a drive"}
               subtitle={
                 isEditing
@@ -181,6 +196,7 @@ export default function PostDrive() {
                     <input
                       required
                       value={form.companyName}
+                      maxLength={255}
                       onChange={(e) => set("companyName", e.target.value)}
                       placeholder="Zoho"
                       className="input"
@@ -190,6 +206,7 @@ export default function PostDrive() {
                     <input
                       required
                       value={form.role}
+                      maxLength={255}
                       onChange={(e) => set("role", e.target.value)}
                       placeholder="Member Technical Staff"
                       className="input"
@@ -200,6 +217,7 @@ export default function PostDrive() {
                       required
                       type="number"
                       min="1"
+                      max="99999999"
                       value={form.ctc}
                       onChange={(e) => set("ctc", e.target.value)}
                       placeholder="900000"
@@ -287,8 +305,9 @@ export default function PostDrive() {
 
                 {form.backlogsAllowed && (
                   <div className="animate-fade-up mt-5 sm:w-1/2">
-                    <Field label="Maximum backlogs" hint="Leave empty for no ceiling">
+                    <Field label="Maximum backlogs" hint="Students with more backlogs than this cannot apply">
                       <input
+                        required
                         type="number"
                         min="0"
                         value={form.maxBacklogs}

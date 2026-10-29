@@ -39,6 +39,7 @@ export default function Register() {
 
   return (
     <AuthLayout>
+      <title>Create account · Placement Prep</title>
       <form onSubmit={handleSubmit} className="mx-auto w-full max-w-sm">
         <p className="chip bg-sky-100 text-sky-700">
           <span className="chip-dot" />

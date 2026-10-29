@@ -56,6 +56,7 @@ export default function Profile() {
 
   return (
     <>
+      <title>Profile · Placement Prep</title>
       <AppHeader profile={profile} active="profile" />
 
       <main className="mx-auto max-w-5xl px-4 pt-8 pb-16">

@@ -201,6 +201,7 @@ export default function Resumes() {
 
   return (
     <>
+      <title>Resume feedback · Placement Prep</title>
       <AppHeader profile={profile} active="resumes" />
 
       <main className="mx-auto max-w-6xl px-4 pt-8 pb-16">

@@ -1,6 +1,7 @@
 package com.rishikesh.placementprep.modules.resume.service;
 
 import java.util.List;
+import java.util.stream.Collectors;
 
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.content.Media;
@@ -49,10 +50,14 @@ public class ResumeReviewer {
             Job description:
             {description}
 
+            Excerpts from the full job-description document:
+            {excerpts}
+
             Give a score from 0 to 100 for how well this resume fits this role. Write a
             two or three sentence summary. List three to five strengths the resume
             already shows for this role, and three to five improvements - each one saying
-            exactly what to add, cut or rewrite.
+            exactly what to add, cut or rewrite. Where the excerpts name a skill,
+            technology or requirement, say whether the resume shows it.
             """;
 
     private final ChatClient chatClient;
@@ -73,7 +78,11 @@ public class ResumeReviewer {
         return apiKey != null && !apiKey.isBlank();
     }
 
-    public Review review(byte[] pdf, DriveDTO drive) {
+    /**
+     * @param excerpts passages of the drive's uploaded job-description PDF, retrieved by
+     *                 meaning (the R in RAG); empty when none was uploaded
+     */
+    public Review review(byte[] pdf, DriveDTO drive, List<String> excerpts) {
         // 1. Attach the PDF as a document the model can read
         Media resume = Media.builder().mimeType(PDF).data(pdf).build();
 
@@ -86,12 +95,20 @@ public class ResumeReviewer {
                         .param("company", drive.companyName())
                         .param("role", drive.role())
                         .param("description", descriptionOf(drive))
+                        .param("excerpts", excerptsOf(excerpts))
                         .media(resume))
                 .call()
                 .entity(Review.class);
 
         // 3. The reply is model output, not something to trust as-is
         return checked(review);
+    }
+
+    private String excerptsOf(List<String> excerpts) {
+        if (excerpts == null || excerpts.isEmpty()) {
+            return "None - no job-description document was uploaded for this drive.";
+        }
+        return excerpts.stream().map(excerpt -> "- " + excerpt).collect(Collectors.joining("\n"));
     }
 
     private String descriptionOf(DriveDTO drive) {

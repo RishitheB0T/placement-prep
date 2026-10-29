@@ -154,6 +154,7 @@ export default function Drives() {
 
   return (
     <>
+      <title>Drives · Placement Prep</title>
       <AppHeader profile={profile} active="drives" />
 
       <main className="mx-auto max-w-6xl px-4 pt-8 pb-16">

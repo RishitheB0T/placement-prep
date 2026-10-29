@@ -166,6 +166,7 @@ export default function Applications() {
 
   return (
     <>
+      <title>Applications · Placement Prep</title>
       <AppHeader profile={profile} active="applications" />
 
       <main className="mx-auto max-w-5xl px-4 pt-8 pb-16">
@@ -332,13 +333,14 @@ export default function Applications() {
                         // Only while still under review: a decided application cannot be
                         // withdrawn (the backend answers 409), or a rejection could be undone
                         // by withdrawing and applying again.
+                        // Wrapped in a block so the button starts on its own line: on its own
+                        // it is inline, and would sit beside the "Applied" date above it.
                         (application.status === "APPLIED" || application.status === "SHORTLISTED") && (
-                          <button
-                            onClick={() => void withdraw(application.id)}
-                            className="btn btn-sm btn-secondary mt-4"
-                          >
-                            Withdraw
-                          </button>
+                          <div className="mt-4">
+                            <button onClick={() => void withdraw(application.id)} className="btn btn-sm btn-secondary">
+                              Withdraw
+                            </button>
+                          </div>
                         )
                       )}
                     </div>

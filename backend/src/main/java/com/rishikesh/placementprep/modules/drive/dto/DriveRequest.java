@@ -59,7 +59,7 @@ public record DriveRequest(
      * constraint annotation and validator class. The method is evaluated as part of the
      * same @Valid pass, so a violation produces the usual 400.
      */
-    @AssertTrue(message = "maxBacklogs is required when backlogsAllowed is true")
+    @AssertTrue(message = "Enter the maximum number of backlogs, since backlogs are allowed")
     public boolean isBacklogLimitConsistent() {
         return !Boolean.TRUE.equals(backlogsAllowed) || maxBacklogs != null;
     }

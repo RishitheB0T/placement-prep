@@ -2,6 +2,7 @@ package com.rishikesh.placementprep.modules.resume.service;
 
 import java.time.Duration;
 import java.time.Instant;
+import java.util.List;
 import java.util.Optional;
 
 import org.slf4j.Logger;
@@ -13,6 +14,7 @@ import org.springframework.stereotype.Component;
 
 import com.rishikesh.placementprep.modules.drive.dto.DriveDTO;
 import com.rishikesh.placementprep.modules.drive.service.DriveService;
+import com.rishikesh.placementprep.modules.knowledgebase.service.JobDescriptionService;
 import com.rishikesh.placementprep.modules.resume.service.ResumeService.ReviewTask;
 
 /**
@@ -38,6 +40,13 @@ public class ResumeReviewJob {
     /** How old an unreferenced file must be before the sweep deletes it. */
     static final Duration ORPHAN_GRACE = Duration.ofHours(1);
 
+    /** What the retrieval asks the job description for: the parts a resume is judged against. */
+    static final String REQUIREMENTS_QUERY =
+            "required skills, technologies, qualifications, eligibility and responsibilities for this role";
+
+    /** About 1,600 tokens of context at most - enough to cover a typical JD's requirements. */
+    static final int MAX_EXCERPTS = 8;
+
     static final String NOT_CONFIGURED =
             "AI feedback is not switched on for this server yet. Your resume is saved - try again once it is.";
 
@@ -47,13 +56,16 @@ public class ResumeReviewJob {
     private final ResumeService resumeService;
     private final ResumeReviewer resumeReviewer;
     private final DriveService driveService;
+    private final JobDescriptionService jobDescriptionService;
 
     public ResumeReviewJob(ResumeService resumeService,
                            ResumeReviewer resumeReviewer,
-                           DriveService driveService) {
+                           DriveService driveService,
+                           JobDescriptionService jobDescriptionService) {
         this.resumeService = resumeService;
         this.resumeReviewer = resumeReviewer;
         this.driveService = driveService;
+        this.jobDescriptionService = jobDescriptionService;
     }
 
     /** Puts back any review that was cut off by the last shutdown. */
@@ -113,17 +125,36 @@ public class ResumeReviewJob {
                 return true;
             }
 
-            // 4. Read the PDF back and ask the model
-            byte[] pdf = resumeService.readFile(task.storageKey());
-            ResumeReviewer.Review review = resumeReviewer.review(pdf, drive.get());
+            // 4. Retrieve the parts of the drive's job-description PDF that describe what
+            //    the role needs - the retrieval step of RAG - so the review can be judged
+            //    against the real requirements, not only the short description field
+            List<String> excerpts = jobDescriptionExcerpts(task.driveId());
 
-            // 5. Save the review
+            // 5. Read the PDF back and ask the model
+            byte[] pdf = resumeService.readFile(task.storageKey());
+            ResumeReviewer.Review review = resumeReviewer.review(pdf, drive.get(), excerpts);
+
+            // 6. Save the review
             resumeService.completeReview(task.resumeId(), review);
         } catch (RuntimeException e) {
             log.warn("Review of resume {} failed", task.resumeId(), e);
             resumeService.failReview(task.resumeId(), REVIEW_FAILED);
         }
         return true;
+    }
+
+    /**
+     * The passages of a drive's job-description PDF that best describe what the role
+     * needs. A failed search costs the review its extra context, never the review itself,
+     * so it is logged and answered with no excerpts.
+     */
+    private List<String> jobDescriptionExcerpts(Long driveId) {
+        try {
+            return jobDescriptionService.passagesFor(driveId, REQUIREMENTS_QUERY, MAX_EXCERPTS);
+        } catch (RuntimeException e) {
+            log.warn("Could not retrieve job-description passages for drive {}", driveId, e);
+            return List.of();
+        }
     }
 
     /**

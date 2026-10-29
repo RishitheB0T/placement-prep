@@ -51,6 +51,24 @@ interface ProblemDetail {
   title?: string;
   detail?: string;
   status?: number;
+  /** Field name -> reason, added by the backend's ValidationErrorHandler on a 400. */
+  errors?: Record<string, string>;
+}
+
+/**
+ * Turns the backend's field errors into one readable message. A message that is already a
+ * sentence (it starts with a capital: "Only the student can withdraw an application") is
+ * shown as it is; a terse default ("must be less than or equal to 10.0") gets the field
+ * name in front, so the user knows which box to fix: "Cgpa cutoff: must be less than...".
+ */
+function describeFieldErrors(errors: Record<string, string>): string {
+  return Object.entries(errors)
+    .map(([field, reason]) => {
+      if (/^[A-Z]/.test(reason)) return reason;
+      const words = field.replace(/([a-z0-9])([A-Z])/g, "$1 $2").toLowerCase();
+      return `${words.charAt(0).toUpperCase()}${words.slice(1)}: ${reason}`;
+    })
+    .join(". ");
 }
 
 /**
@@ -120,6 +138,11 @@ async function errorMessage(status: number, data: unknown): Promise<string> {
 
   if (body !== null && typeof body === "object") {
     const problem = body as ProblemDetail;
+    // A rejected form says which fields were wrong and why; that beats the generic
+    // "Invalid request content." the detail carries in that case.
+    if (problem.errors && Object.keys(problem.errors).length > 0) {
+      return describeFieldErrors(problem.errors);
+    }
     return problem.detail ?? problem.title ?? `Request failed (${status})`;
   }
   // Not JSON at all - a proxy error page, or a dead server.

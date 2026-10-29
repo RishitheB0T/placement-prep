@@ -252,7 +252,7 @@ class ResumeApiTest {
     @Test
     void theJobFillsInTheReviewAndMarksItCompleted() throws Exception {
         when(resumeReviewer.isConfigured()).thenReturn(true);
-        when(resumeReviewer.review(any(), any())).thenReturn(new ResumeReviewer.Review(
+        when(resumeReviewer.review(any(), any(), any())).thenReturn(new ResumeReviewer.Review(
                 82,
                 "A strong fit for a Java backend role.",
                 List.of("Two Spring Boot projects"),
@@ -281,14 +281,14 @@ class ResumeApiTest {
         Resume reviewed = resumeRepository.findAll().getFirst();
         assertThat(reviewed.getStatus()).isEqualTo(ResumeStatus.FAILED);
         assertThat(reviewed.getFailureReason()).contains("not switched on");
-        verify(resumeReviewer, never()).review(any(), any());
+        verify(resumeReviewer, never()).review(any(), any(), any());
     }
 
     /** A failed model call must never leave the row PROCESSING - that spinner would never stop. */
     @Test
     void aModelErrorMarksTheReviewFailedAndRetryQueuesItAgain() throws Exception {
         when(resumeReviewer.isConfigured()).thenReturn(true);
-        when(resumeReviewer.review(any(), any())).thenThrow(new IllegalStateException("model unavailable"));
+        when(resumeReviewer.review(any(), any(), any())).thenThrow(new IllegalStateException("model unavailable"));
 
         mockMvc.perform(upload(studentToken, driveId, pdf("resume.pdf"))).andExpect(status().isCreated());
         resumeReviewJob.reviewNext();

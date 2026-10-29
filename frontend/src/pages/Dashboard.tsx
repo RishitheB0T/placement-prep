@@ -44,6 +44,8 @@ export default function Dashboard() {
 
   return (
     <>
+      {/* React 19 moves a <title> rendered anywhere into the document head. */}
+      <title>Dashboard · Placement Prep</title>
       <AppHeader profile={profile} active="dashboard" />
       <main className="mx-auto max-w-6xl px-4 pt-8 pb-16">
         {error && (

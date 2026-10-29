@@ -39,6 +39,7 @@ import com.rishikesh.placementprep.modules.auth.repository.UserRepository;
 import com.rishikesh.placementprep.modules.auth.service.JwtService;
 import com.rishikesh.placementprep.modules.drive.model.Drive;
 import com.rishikesh.placementprep.modules.drive.repository.DriveRepository;
+import com.rishikesh.placementprep.modules.knowledgebase.service.JobDescriptionService;
 
 /**
  * The job-description search, end to end: a real PDF, the real local embedding model,
@@ -69,6 +70,9 @@ class JobDescriptionApiTest {
 
     @Autowired
     private JdbcTemplate jdbcTemplate;
+
+    @Autowired
+    private JobDescriptionService jobDescriptionService;
 
     private String adminToken;
     private String studentToken;
@@ -108,6 +112,24 @@ class JobDescriptionApiTest {
                         .header(HttpHeaders.AUTHORIZATION, bearer(studentToken)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$[0].companyName").value("Canva"));
+    }
+
+    /**
+     * The resume reviewer's retrieval: only the reviewed drive's job description comes
+     * back, however close in meaning another drive's passages are - a Razorpay review must
+     * never be judged against Canva's requirements.
+     */
+    @Test
+    void theReviewersRetrievalStaysInsideOneDrivesJobDescription() throws Exception {
+        upload(adminToken, backendDriveId, BACKEND_JD).andExpect(status().isCreated());
+        upload(adminToken, designDriveId, DESIGN_JD).andExpect(status().isCreated());
+
+        List<String> excerpts = jobDescriptionService.passagesFor(backendDriveId, "required skills and design work", 8);
+
+        assertThat(excerpts).isNotEmpty()
+                .allSatisfy(text -> assertThat(text).doesNotContain("Figma"))
+                .anySatisfy(text -> assertThat(text).contains("Spring Boot"));
+        assertThat(jobDescriptionService.passagesFor(999_999L, "required skills", 8)).isEmpty();
     }
 
     @Test

@@ -110,6 +110,33 @@ public class JobDescriptionService {
                 .toList();
     }
 
+    /**
+     * The passages of one drive's job description closest in meaning to the query, best
+     * first - the retrieval half of RAG for the resume reviewer, which puts them in front
+     * of the model so feedback can quote what this job actually asks for.
+     *
+     * <p>The filter keeps the search inside this drive's passages, and there is no
+     * similarity threshold: any passage of the right job description is relevant context,
+     * the query only decides the order. Where semantic search is switched off (the free
+     * showcase), there are simply no passages and the review runs without them.
+     *
+     * @return the passage texts; empty when no job description was uploaded for the drive
+     */
+    public List<String> passagesFor(Long driveId, String query, int limit) {
+        if (vectorStore.isEmpty()) {
+            return List.of();
+        }
+        SearchRequest request = SearchRequest.builder()
+                .query(query)
+                .topK(limit)
+                .filterExpression("driveId == " + driveId)
+                .build();
+
+        return vectorStore.get().similaritySearch(request).stream()
+                .map(Document::getText)
+                .toList();
+    }
+
     /** Removes a drive's passages - on re-upload, and when the drive itself is deleted. */
     public void forgetDrive(Long driveId) {
         vectorStore.ifPresent(store -> store.delete("driveId == " + driveId));

@@ -84,6 +84,7 @@ export default function Login() {
 
   return (
     <AuthLayout>
+      <title>Sign in · Placement Prep</title>
       <form onSubmit={handleSubmit} className="mx-auto w-full max-w-sm">
         <div className="flex gap-1 rounded-2xl bg-slate-100/80 p-1 text-sm ring-1 ring-slate-200/60">
           <ModeButton active={mode === "student"} onClick={() => switchMode("student")}>

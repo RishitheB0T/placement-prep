@@ -123,6 +123,7 @@ export default function Assistant() {
 
   return (
     <>
+      <title>Assistant · Placement Prep</title>
       <AppHeader profile={profile} active="assistant" />
 
       <main className="mx-auto max-w-6xl px-4 pt-8 pb-16">

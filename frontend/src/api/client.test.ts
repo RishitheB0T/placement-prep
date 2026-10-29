@@ -102,6 +102,28 @@ describe("api client", () => {
     });
   });
 
+  /** A rejected form names the fields to fix, instead of "Invalid request content." */
+  it("spells out the field errors of a rejected form", async () => {
+    fetchMock.mockResolvedValue(
+      jsonResponse(
+        {
+          title: "Bad Request",
+          detail: "Invalid request content.",
+          errors: {
+            cgpaCutoff: "must be less than or equal to 10.0",
+            backlogLimitConsistent: "Enter the maximum number of backlogs, since backlogs are allowed",
+          },
+        },
+        400,
+      ),
+    );
+
+    await expect(api.post("/api/drives", {})).rejects.toMatchObject({
+      status: 400,
+      message: "Cgpa cutoff: must be less than or equal to 10.0. Enter the maximum number of backlogs, since backlogs are allowed",
+    });
+  });
+
   it("still produces a usable error when the body is not JSON at all", async () => {
     // A dead server or a proxy error page, rather than the API answering.
     fetchMock.mockResolvedValue(new Response("<html>502</html>", { status: 502 }));
