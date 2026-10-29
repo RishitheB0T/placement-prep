@@ -1,0 +1,13 @@
+# One line-ending rule for the whole repository: text is stored and checked out with LF,
+# so files are byte-identical on Windows, macOS and Linux and diffs never show line-ending
+# noise. Windows command scripts keep CRLF, which cmd.exe needs.
+* text=auto eol=lf
+*.cmd text eol=crlf
+*.bat text eol=crlf
+
+# Never touch the bytes of binary files.
+*.png binary
+*.jpg binary
+*.ico binary
+*.pdf binary
+*.jar binary

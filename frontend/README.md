@@ -1,32 +1,26 @@
-# React + TypeScript + Vite
+# Placement Prep - frontend
 
-This template provides a minimal setup to get React working in Vite with HMR and some Oxlint rules.
+The React single-page app for [Placement Prep](../README.md): React 19, TypeScript, Vite,
+React Router 7, Axios and Tailwind CSS 4.
 
-Currently, two official plugins are available:
-
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
-
-## React Compiler
-
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
-
-## Expanding the Oxlint configuration
-
-If you are developing a production application, we recommend enabling type-aware lint rules by installing `oxlint-tsgolint` and editing `.oxlintrc.json`:
-
-```json
-{
-  "$schema": "./node_modules/oxlint/configuration_schema.json",
-  "plugins": ["react", "typescript", "oxc"],
-  "options": {
-    "typeAware": true
-  },
-  "rules": {
-    "react/rules-of-hooks": "error",
-    "react/only-export-components": ["warn", { "allowConstantExport": true }]
-  }
-}
+```bash
+npm install
+npm run dev        # http://localhost:5173 - proxies /api to the backend on :8081
+npm test           # Vitest + React Testing Library
+npm run lint       # oxlint
+npm run build      # type-check, then a production build in dist/
 ```
 
-See the [Oxlint rules documentation](https://oxc.rs/docs/guide/usage/linter/rules) for the full list of rules and categories.
+## Layout
+
+| Folder | Holds |
+| --- | --- |
+| `src/pages/` | one component per route - Dashboard, Drives, Applications, Resumes, Assistant, Profile, PostDrive, Login, Register |
+| `src/components/` | shared pieces - the header and notification bell, the route guard, the UI kit in `ui.tsx` |
+| `src/api/` | every call to the backend, one file per area; `client.ts` is the single Axios instance that attaches the token and turns errors into `ApiError`; `roles.ts` says what each role may do |
+| `src/test/` | test setup, render helpers and fixtures |
+
+Pages never call HTTP directly - they call functions in `src/api/`. The design system
+(colours, `.card`, `.btn`, `.input`, `.chip`, animations) lives in `src/index.css`.
+
+See the [development guide](../docs/DEVELOPMENT.md) for the full setup.
