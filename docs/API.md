@@ -161,11 +161,13 @@ A review moves `PENDING` → `PROCESSING` → `COMPLETED` (with `score` 0-100, `
 | Method | Path | Purpose | Who | Success / errors |
 | --- | --- | --- | --- | --- |
 | `POST` | `/api/drives/{driveId}/job-description` | index a drive's JD PDF, replacing any earlier one | C R A | `201` `{driveId, passages}` · `400` · `404` · `422` no readable text |
-| `GET` | `/api/job-descriptions/search?q=&limit=5` | passages closest in meaning | S C A | `200` · `400` |
+| `GET` | `/api/job-descriptions/search?q=&limit=5` | passages closest in meaning | S C A | `200` · `400` · `503` semantic search switched off |
 
 `q` is 1-500 characters and `limit` 1-20. Each match is
 `{driveId, companyName, role, excerpt, score}`, best first. Works with no API key - the
-embedding model runs locally.
+embedding model runs locally. On a deployment that switches semantic search off to save
+memory (see the development guide), search and upload answer `503`; resume reviews still
+run, just without job-description excerpts.
 
 ## AI assistant
 

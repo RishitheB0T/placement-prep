@@ -252,7 +252,7 @@ flowchart LR
 | **Data** | PostgreSQL 16 · pgvector (HNSW, cosine) |
 | **Frontend** | React 19 · TypeScript · Vite · React Router 7 · Axios · Tailwind CSS 4 |
 | **Testing** | JUnit · Mockito · MockMvc · Testcontainers · Vitest · React Testing Library · Postman |
-| **Delivery** | Docker multi-stage images · nginx · Docker Compose · GitHub Actions |
+| **Delivery** | Docker multi-stage images · nginx · Docker Compose · GitHub Actions · Render |
 
 <br/>
 
@@ -317,7 +317,8 @@ placement-prep/
 │   └── src/  api/ · components/ · pages/
 ├── docs/                        architecture, API, development guide, images
 ├── postman/                     collection + sample PDFs
-└── docker-compose.yml           PostgreSQL, and the full app with --profile app
+├── docker-compose.yml           PostgreSQL, and the full app with --profile app
+└── render.yaml                  free showcase deployment on Render
 ```
 
 <br/>

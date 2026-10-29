@@ -134,6 +134,18 @@ set `baseUrl` if the backend is not on `http://localhost:8081`, and run the fold
 order. File uploads use the two sample PDFs next to it. A run leaves behind one
 `postman.<timestamp>@cse.nits.ac.in` student and one recruiter account.
 
+## Free showcase deployment
+
+[`render.yaml`](../render.yaml) describes a free [Render](https://render.com) showcase: the API,
+the nginx-served frontend (which proxies `/api` to the API over HTTPS) and a PostgreSQL
+database. Free services sleep when idle, uploads are temporary and the database expires
+after 30 days, so it is for demos only.
+
+To fit the free 512 MB instance, the showcase leaves out the local embedding model and the
+vector store (`SPRING_AUTOCONFIGURE_EXCLUDE`). `JobDescriptionService` takes the vector store
+as optional, so everything else runs normally: job-description search and upload answer
+`503`, and resume reviews run without job-description excerpts.
+
 ## Continuous integration
 
 GitHub Actions ([`.github/workflows/ci.yml`](../.github/workflows/ci.yml)) runs on every
