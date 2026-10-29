@@ -105,7 +105,7 @@ On Windows use `.\mvnw.cmd` instead of `./mvnw`.
 | --- | --- | --- | --- |
 | Backend integration (`*ApiTest` + context test) | 8 classes | real PostgreSQL + pgvector in Docker (Testcontainers), real signed JWTs | Docker |
 | Backend unit (`*ServiceTest`, `*JobTest`, `AssistantToolsTest`) | 8 classes | Mockito, no Spring, no database | - |
-| **Backend total** | **224 tests** | JUnit Jupiter | Docker |
+| **Backend total** | **225 tests** | JUnit Jupiter | Docker |
 | Frontend (Vitest + Testing Library) | **89 tests** | jsdom, every API call stubbed | - |
 | Postman collection | **85 requests, 114 assertions** | a running backend | the app |
 
