@@ -822,6 +822,9 @@
                   "pm.test(\"finds the backend drive with no shared words\", () => {",
                   "  const ids = pm.response.json().map(m => m.driveId);",
                   "  pm.expect(ids).to.include(pm.collectionVariables.get(\"driveId\"));",
+                  "});",
+                  "pm.test(\"says how each match was found\", () => {",
+                  "  pm.response.json().forEach(m => pm.expect(m.matchedBy).to.be.oneOf([\"MEANING\", \"KEYWORDS\", \"BOTH\"]));",
                   "});"
                 ]
               }

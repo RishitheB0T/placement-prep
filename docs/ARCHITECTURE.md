@@ -13,7 +13,7 @@ endpoint see [API.md](API.md).
 5. [The life of an application](#5-the-life-of-an-application)
 6. [Notifications and deadline reminders](#6-notifications-and-deadline-reminders)
 7. [Resume feedback: a database table as a job queue](#7-resume-feedback-a-database-table-as-a-job-queue)
-8. [RAG: job-description search by meaning](#8-rag-job-description-search-by-meaning)
+8. [RAG: job-description search, by meaning and by words](#8-rag-job-description-search-by-meaning-and-by-words)
 9. [The AI assistant: tool calling](#9-the-ai-assistant-tool-calling)
 10. [The data model](#10-the-data-model)
 11. [Background jobs](#11-background-jobs)
@@ -403,7 +403,7 @@ sequenceDiagram
 
 ---
 
-## 8. RAG: job-description search by meaning
+## 8. RAG: job-description search, by meaning and by words
 
 **RAG** (retrieval-augmented generation): find the passages relevant to a question, then
 give them to the language model so it answers from real documents instead of memory.
@@ -435,7 +435,7 @@ flowchart LR
     REVIEW --> GEN
 ```
 
-- **Search by meaning, not words.** "server-side programming with databases" finds a job
+- **Search by meaning.** "server-side programming with databases" finds a job
   description that says "Java, Spring Boot, SQL" with no word in common - a test proves it
   against a real pgvector database.
 - **Local and pinned.** The embedding model runs inside the JVM (ONNX Runtime), needs no
@@ -444,6 +444,36 @@ flowchart LR
   transaction; deleting the drive removes them too.
 - **Scoped retrieval.** The resume reviewer filters by `driveId`, so a review is only ever
   judged against its own drive's job description.
+
+### Hybrid search: meaning and words together
+
+An embedding is good at paraphrase and weak at exact terms - a library, an acronym, a
+tool's name. A long passage that covers many topics can also sit too far from a short,
+specific query to pass the similarity cut-off. So the search panel and the assistant's
+search tool ask two questions of the same `job_description_chunks` rows and merge the
+answers.
+
+```mermaid
+flowchart LR
+    Q["query"] --> V["<b>By meaning</b><br/>pgvector, cosine<br/>top 20 above 0.2"]
+    Q --> K["<b>By words</b><br/>PostgreSQL full-text search<br/>GIN index · any word · top 20"]
+    V --> F["<b>Reciprocal rank fusion</b><br/>score = Σ 1 / (60 + rank)"]
+    K --> F
+    F --> R["one ranked list<br/>MEANING · KEYWORDS · BOTH"]
+```
+
+| Piece | Where | How |
+| --- | --- | --- |
+| Keyword index | `V16__add_keyword_search_index.sql` | GIN on `to_tsvector('english', content)` - stems ("indexing" → "index"), no stop words |
+| Keyword query | `JobDescriptionChunkRepository` | `plainto_tsquery`, with AND swapped for OR so any one word qualifies; ranked by `ts_rank_cd`, which rewards more of the words, closer together |
+| Fusion | `JobDescriptionService.search` | each list contributes `1 / (60 + rank)`; only ranks are used, because a cosine similarity and a full-text rank are not on comparable scales |
+
+A passage both halves found rises above either half's own first choice. A real example
+from the sample job description: *"SQL query tuning"* falls below the similarity cut-off
+for the one long passage, so a search by meaning alone returned nothing; the keyword half
+finds it. The query plan uses the GIN index (`Bitmap Index Scan on
+job_description_chunks_content_fts_idx`). The resume reviewer's retrieval stays
+meaning-only - it reads all of one drive's passages anyway.
 
 ---
 
@@ -606,7 +636,7 @@ erDiagram
 - **Cascades follow meaning.** Deleting a drive removes its applications, resumes,
   notifications and passages. Deleting a recruiter's account *keeps* their drives
   (`created_by` becomes `NULL` and the drive passes back to the cell).
-- **Flyway owns the schema** (15 migrations); Hibernate only validates. An applied
+- **Flyway owns the schema** (16 migrations); Hibernate only validates. An applied
   migration is never edited - Flyway checksums every file.
 
 ---

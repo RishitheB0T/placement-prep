@@ -6,12 +6,12 @@
 
 Drives with automatic eligibility · applications from apply to offer · deadline reminders ·
 AI resume feedback grounded in the real job description · an AI assistant that acts through
-tool calling · semantic search with pgvector
+tool calling · hybrid search with pgvector and PostgreSQL full-text
 
 <br/>
 
 [![CI](https://github.com/RishitheB0T/placement-prep/actions/workflows/ci.yml/badge.svg)](https://github.com/RishitheB0T/placement-prep/actions/workflows/ci.yml)
-![Tests](https://img.shields.io/badge/tests-328_passing-22c55e?logo=checkmarx&logoColor=white)
+![Tests](https://img.shields.io/badge/tests-332_passing-22c55e?logo=checkmarx&logoColor=white)
 ![Endpoints](https://img.shields.io/badge/REST_endpoints-36-8b5cf6)
 ![Postman](https://img.shields.io/badge/Postman-85_requests-FF6C37?logo=postman&logoColor=white)
 
@@ -82,10 +82,10 @@ as the buttons - and the reply **streams in word by word** over Server-Sent Even
 </td>
 <td valign="top">
 
-### 🔍 Search by meaning (RAG)
+### 🔍 Search by meaning and by words (RAG)
 Job-description PDFs are split, embedded by a **local model** and stored in **pgvector**.
-*"Data pipelines with Spark"* finds the right job even when no word matches - with no API
-key at all.
+*"Data pipelines with Spark"* finds the right job even when no word matches, and a
+**hybrid search** adds PostgreSQL full-text matches for exact terms - with no API key.
 
 </td>
 </tr>
@@ -100,7 +100,7 @@ filter chain, plus row-level ownership: a recruiter only ever sees the drives th
 <td valign="top">
 
 ### 🧱 Built to be trusted
-Flyway-owned schema, validation that mirrors every column, RFC 9457 errors, **232 backend
+Flyway-owned schema, validation that mirrors every column, RFC 9457 errors, **235 backend
 tests on real PostgreSQL + pgvector** via Testcontainers, CI on every push.
 
 </td>
@@ -184,7 +184,7 @@ flowchart LR
         MODS --- EMB
     end
 
-    DB[("🐘 <b>PostgreSQL 16</b><br/>+ pgvector<br/>15 Flyway migrations")]
+    DB[("🐘 <b>PostgreSQL 16</b><br/>+ pgvector<br/>16 Flyway migrations")]
     LLM["🤖 <b>Claude</b><br/>via Spring AI"]
 
     SPA <==>|"JSON + Bearer token"| PROXY
@@ -224,8 +224,11 @@ flowchart LR
     SPLIT --> EMBED["embed locally<br/>all-MiniLM-L6-v2"]
     EMBED --> PG[("🐘 pgvector<br/>HNSW · cosine")]
     Q["💬 a question"] --> QE["embed the same way"] --> PG
-    PG --> SEARCH["🔍 Search panel<br/>ranked by meaning"]
-    PG --> TOOL["🤖 Assistant tool<br/>searchJobDescriptions"]
+    Q --> FTS["🔤 full-text search<br/>GIN index · same passages"]
+    PG --> RRF["⚖️ reciprocal<br/>rank fusion"]
+    FTS --> RRF
+    RRF --> SEARCH["🔍 Search panel<br/>meaning + words"]
+    RRF --> TOOL["🤖 Assistant tool<br/>searchJobDescriptions"]
     PG --> REVIEW["📄 Resume review<br/>context for the prompt"]
     TOOL --> CLAUDE["Claude answers<br/>from real passages"]
     REVIEW --> CLAUDE
@@ -233,7 +236,7 @@ flowchart LR
 
 | | How it works |
 | --- | --- |
-| **Retrieval (R)** | PDFs are read with PDFBox, split by tokens, embedded **inside the JVM** and stored in pgvector with an HNSW index. A search embeds the question the same way and returns the nearest passages by cosine distance. |
+| **Retrieval (R)** | PDFs are read with PDFBox, split by tokens, embedded **inside the JVM** and stored in pgvector with an HNSW index. A search embeds the question the same way and finds the nearest passages by cosine distance; a **hybrid search** also finds passages holding the question's words with PostgreSQL full-text search, and merges the two rankings with **reciprocal rank fusion**. |
 | **Generation (G)** | The assistant's `searchJobDescriptions` tool and the resume reviewer put the retrieved passages in front of Claude, so answers and feedback quote what the job actually asks for. |
 | **Tool calling** | Five `@Tool` methods - eligible drives, all drives, my applications, apply, search. Spring AI runs the loop: the model asks for a tool, the Java method runs, the result goes back. Tools are bound to the signed-in student, so the model can never reach anyone else's data. |
 | **Streaming** | The assistant's reply is sent as Server-Sent Events while Claude writes it - tool calls still run part-way through - and the page reads the stream with `fetch`. |
@@ -291,9 +294,9 @@ Configuration, ports and every command are in the [development guide](docs/DEVEL
 
 | | |
 | --- | --- |
-| 🧪 **232 backend tests** | Integration tests on **real PostgreSQL + pgvector** (Testcontainers) with real signed JWTs; unit tests for every service; the AI tool-calling loop - streamed and not - tested against a fake Anthropic server |
-| 🧪 **96 frontend tests** | Vitest + React Testing Library - every role gets exactly the controls it should |
-| 📮 **87 Postman requests** | Every endpoint, each restricted one called by a role that may and one that may not - 116 assertions |
+| 🧪 **235 backend tests** | Integration tests on **real PostgreSQL + pgvector** (Testcontainers) with real signed JWTs; unit tests for every service; the AI tool-calling loop - streamed and not - tested against a fake Anthropic server |
+| 🧪 **97 frontend tests** | Vitest + React Testing Library - every role gets exactly the controls it should |
+| 📮 **87 Postman requests** | Every endpoint, each restricted one called by a role that may and one that may not - 117 assertions |
 | 🔁 **CI** | GitHub Actions builds and tests backend and frontend on every push |
 | 🧹 **Lint** | oxlint - 0 warnings |
 
@@ -343,7 +346,7 @@ placement-prep/
 - ✅ Notifications and deadline reminders
 - ✅ AI resume feedback, grounded in the job description
 - ✅ AI assistant with tool calling and streamed replies
-- ✅ Semantic search over job descriptions (RAG, pgvector)
+- ✅ Hybrid search over job descriptions (RAG - pgvector + full-text, rank fusion)
 - ✅ Docker images and CI
 - 🔜 Company-wise AI mock interviews
 - 🔜 Q&A over placement notices, with sources

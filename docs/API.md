@@ -161,11 +161,23 @@ A review moves `PENDING` → `PROCESSING` → `COMPLETED` (with `score` 0-100, `
 | Method | Path | Purpose | Who | Success / errors |
 | --- | --- | --- | --- | --- |
 | `POST` | `/api/drives/{driveId}/job-description` | index a drive's JD PDF, replacing any earlier one | C R A | `201` `{driveId, passages}` · `400` · `404` · `422` no readable text |
-| `GET` | `/api/job-descriptions/search?q=&limit=5` | passages closest in meaning | S C A | `200` · `400` · `503` semantic search switched off |
+| `GET` | `/api/job-descriptions/search?q=&limit=5` | passages matching by meaning and by words | S C A | `200` · `400` · `503` semantic search switched off |
 
 `q` is 1-500 characters and `limit` 1-20. Each match is
-`{driveId, companyName, role, excerpt, score}`, best first. Works with no API key - the
-embedding model runs locally. On a deployment that switches semantic search off to save
+`{driveId, companyName, role, excerpt, score, matchedBy}`, best first:
+
+```json
+{ "driveId": 12, "companyName": "Razorpay", "role": "Backend Engineer",
+  "excerpt": "Strong SQL skills: PostgreSQL schema design, indexing and query tuning...",
+  "score": 0.41, "matchedBy": "BOTH" }
+```
+
+The search is hybrid: one half finds passages close in meaning, the other finds passages
+containing any of the query's words, and the two rankings are merged. `matchedBy` says
+which half found the passage - `MEANING`, `KEYWORDS` or `BOTH`. `score` is the closeness
+in meaning (0-1), and `0` for a passage found by its words alone; the order comes from both
+halves together, so it is not sorted by `score`. Works with no API key - the embedding
+model runs locally. On a deployment that switches semantic search off to save
 memory (see the development guide), search and upload answer `503`; resume reviews still
 run, just without job-description excerpts.
 
