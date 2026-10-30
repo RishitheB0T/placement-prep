@@ -185,7 +185,7 @@ run, just without job-description excerpts.
 
 | Method | Path | Purpose | Who | Success / errors |
 | --- | --- | --- | --- | --- |
-| `POST` | `/api/agent/chat` | ask in plain English | S C | `200` `{reply}` · `400` · `502` provider failed · `503` no API key |
+| `POST` | `/api/agent/chat` | ask in plain English | S C | `200` `{reply, toolsUsed}` · `400` · `502` provider failed · `503` no API key |
 | `POST` | `/api/agent/chat/stream` | the same, with the reply streamed as it is written | S C | `200` `text/event-stream` · `400` · `503` no API key |
 
 ```json
@@ -195,6 +195,14 @@ run, just without job-description excerpts.
 
 `message` is 1-2000 characters; `history` up to 20 turns of up to 4000 characters. The
 server keeps no conversation - the client sends the recent turns each time.
+
+The reply names the tools the assistant called to answer, each once, in the order first
+called - `eligibleDrives`, `allDrives`, `myApplications`, `applyToDrive`,
+`searchJobDescriptions` - and is empty when it answered without looking anything up:
+
+```json
+{ "reply": "You can apply to Zoho and Razorpay.", "toolsUsed": ["eligibleDrives"] }
+```
 
 **Streaming.** Both endpoints take the same body. `/chat/stream` answers with
 [Server-Sent Events](https://html.spec.whatwg.org/multipage/server-sent-events.html), each
@@ -208,10 +216,11 @@ event:token
 data:{"text":"Zoho."}
 
 event:done
-data:{"reply":"You can apply to Zoho."}
+data:{"reply":"You can apply to Zoho.","toolsUsed":["eligibleDrives"]}
 ```
 
-Any number of `token` events, then exactly one `done` - or, if the model provider fails
+Any number of `token` events, then exactly one `done` - the same body `/chat` answers
+with - or, if the model provider fails
 after the stream has begun (the status is already `200` by then), one `error` event whose
 data is the usual problem detail with `"status": 502`. A `400` or `503` is decided before
 streaming starts and arrives as an ordinary error response. The browser's `EventSource`

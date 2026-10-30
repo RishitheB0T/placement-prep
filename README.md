@@ -11,7 +11,7 @@ tool calling · hybrid search with pgvector and PostgreSQL full-text
 <br/>
 
 [![CI](https://github.com/RishitheB0T/placement-prep/actions/workflows/ci.yml/badge.svg)](https://github.com/RishitheB0T/placement-prep/actions/workflows/ci.yml)
-![Tests](https://img.shields.io/badge/tests-332_passing-22c55e?logo=checkmarx&logoColor=white)
+![Tests](https://img.shields.io/badge/tests-342_passing-22c55e?logo=checkmarx&logoColor=white)
 ![Endpoints](https://img.shields.io/badge/REST_endpoints-36-8b5cf6)
 ![Postman](https://img.shields.io/badge/Postman-85_requests-FF6C37?logo=postman&logoColor=white)
 
@@ -100,7 +100,7 @@ filter chain, plus row-level ownership: a recruiter only ever sees the drives th
 <td valign="top">
 
 ### 🧱 Built to be trusted
-Flyway-owned schema, validation that mirrors every column, RFC 9457 errors, **235 backend
+Flyway-owned schema, validation that mirrors every column, RFC 9457 errors, **243 backend
 tests on real PostgreSQL + pgvector** via Testcontainers, CI on every push.
 
 </td>
@@ -241,6 +241,7 @@ flowchart LR
 | **Tool calling** | Five `@Tool` methods - eligible drives, all drives, my applications, apply, search. Spring AI runs the loop: the model asks for a tool, the Java method runs, the result goes back. Tools are bound to the signed-in student, so the model can never reach anyone else's data. |
 | **Streaming** | The assistant's reply is sent as Server-Sent Events while Claude writes it - tool calls still run part-way through - and the page reads the stream with `fetch`. |
 | **Structured output** | The resume review comes back as JSON parsed straight into a Java record - score, summary, strengths, improvements - with the score clamped to 0-100. |
+| **Evaluation** | Every reply reports the tools it used. An evaluation set of 11 messages scores the assistant's tool choice against an 80% pass rate - never applying when only asked - and a second checks resume scores are consistent and tell a fitting resume from an unrelated one. |
 
 <br/>
 
@@ -294,9 +295,10 @@ Configuration, ports and every command are in the [development guide](docs/DEVEL
 
 | | |
 | --- | --- |
-| 🧪 **235 backend tests** | Integration tests on **real PostgreSQL + pgvector** (Testcontainers) with real signed JWTs; unit tests for every service; the AI tool-calling loop - streamed and not - tested against a fake Anthropic server |
-| 🧪 **97 frontend tests** | Vitest + React Testing Library - every role gets exactly the controls it should |
+| 🧪 **243 backend tests** | Integration tests on **real PostgreSQL + pgvector** (Testcontainers) with real signed JWTs; unit tests for every service; the AI tool-calling loop - streamed and not - tested against a fake Anthropic server |
+| 🧪 **99 frontend tests** | Vitest + React Testing Library - every role gets exactly the controls it should |
 | 📮 **87 Postman requests** | Every endpoint, each restricted one called by a role that may and one that may not - 117 assertions |
+| 🎯 **AI evaluations** | Tool choice (11 cases, 80% pass rate) and resume-score consistency, run against the real model with `./mvnw test -Peval`; the harness itself is unit-tested in every build |
 | 🔁 **CI** | GitHub Actions builds and tests backend and frontend on every push |
 | 🧹 **Lint** | oxlint - 0 warnings |
 
@@ -345,7 +347,7 @@ placement-prep/
 - ✅ Four roles with JWT, recruiter scoping, admin tools
 - ✅ Notifications and deadline reminders
 - ✅ AI resume feedback, grounded in the job description
-- ✅ AI assistant with tool calling and streamed replies
+- ✅ AI assistant with tool calling, streamed replies and an evaluation set
 - ✅ Hybrid search over job descriptions (RAG - pgvector + full-text, rank fusion)
 - ✅ Docker images and CI
 - 🔜 Company-wise AI mock interviews

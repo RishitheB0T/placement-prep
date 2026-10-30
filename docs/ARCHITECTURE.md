@@ -536,9 +536,9 @@ sequenceDiagram
     C->>S: stream(student, message, history)
     S->>AI: the same prompt, stream=true
     AI-->>S: text pieces... (a tool call pauses the stream while Java runs it)
-    S-->>C: Flux of text pieces
+    S-->>C: Flux of ReplyPart - Text pieces, then Done
     C-->>B: event:token {"text": ...}  - one per piece
-    C-->>B: event:done {"reply": whole reply}
+    C-->>B: event:done {"reply": whole reply, "toolsUsed": [...]}
     Note over B,C: the request ends with an ASYNC dispatch,<br/>permitted like ERROR and FORWARD
 ```
 
@@ -552,6 +552,29 @@ sequenceDiagram
 
 `AgentApiTest` streams against the fake Anthropic server too, including a tool call in the
 middle of a stream and a provider failure.
+
+### Which tools were used, and evaluating that choice
+
+Every `@Tool` method notes its own name when called, so each reply carries `toolsUsed`
+and the Assistant page lists them under the answer ("Your eligible drives", "Apply to a
+drive"). A streamed reply is a `Flux` of a **sealed** `ReplyPart` - a `Text` piece or the
+final `Done` holding the tools - which the controller turns into events with a
+pattern-matching `switch`; the compiler rejects that switch if a new kind of part is ever
+added without being handled.
+
+The same record makes the assistant measurable. A model's answers vary, so instead of one
+assertion per reply there is an **evaluation set**: fixed cases run as a batch and scored
+against a pass rate.
+
+| Evaluation | Measures | Passes when |
+| --- | --- | --- |
+| `AssistantEvalTest` - 11 messages in `eval/assistant-tool-choice.json` | each case lists the tools that must and must not be called - above all `applyToDrive` when the student only asked about a drive | at least 80% of cases pass |
+| `ResumeReviewEvalTest` - two invented resumes, reviewed 3 times each | consistency, and whether the score tells a fitting resume from an unrelated one | each resume within 15 points; fitting one 20+ points higher |
+
+Both call the real model, so they are tagged `eval` and left out of the normal build:
+`ANTHROPIC_API_KEY=... ./mvnw test -Peval` runs them and writes Markdown reports to
+`target/eval/`. `ToolChoiceEvalTest` checks the harness itself in every build - the
+scoring rules, the report, and that the dataset names only tools that exist.
 
 ---
 

@@ -104,9 +104,10 @@ On Windows use `.\mvnw.cmd` instead of `./mvnw`.
 | Suite | Count | Runs on | Needs |
 | --- | --- | --- | --- |
 | Backend integration (`*ApiTest` + context test) | 8 classes | real PostgreSQL + pgvector in Docker (Testcontainers), real signed JWTs | Docker |
-| Backend unit (`*ServiceTest`, `*JobTest`, `AssistantToolsTest`) | 8 classes | Mockito, no Spring, no database | - |
-| **Backend total** | **235 tests** | JUnit Jupiter | Docker |
-| Frontend (Vitest + Testing Library) | **97 tests** | jsdom, every API call stubbed | - |
+| Backend unit (`*ServiceTest`, `*JobTest`, `AssistantToolsTest`, `ToolChoiceEvalTest`) | 9 classes | Mockito or plain Java, no Spring, no database | - |
+| **Backend total** | **243 tests** | JUnit Jupiter | Docker |
+| AI evaluations (`AssistantEvalTest`, `ResumeReviewEvalTest`) | 2 classes | the real model - run on purpose with `-Peval` | Docker, `ANTHROPIC_API_KEY` |
+| Frontend (Vitest + Testing Library) | **99 tests** | jsdom, every API call stubbed | - |
 | Postman collection | **87 requests, 117 assertions** | a running backend | the app |
 
 Highlights:
@@ -126,6 +127,29 @@ Highlights:
   should - Apply where eligible, Delete for the hiring side, the bell for students.
 
 The first backend test run downloads the embedding model (~350 MB, cached afterwards).
+
+### AI evaluations
+
+Unit tests check code that always behaves the same; a model does not. The evaluations run
+fixed sets of cases against the real model and score the batch against a threshold:
+
+| Evaluation | Checks | Threshold |
+| --- | --- | --- |
+| Tool choice (`AssistantEvalTest`) | 11 messages in `src/test/resources/eval/assistant-tool-choice.json`, each naming the tools that must be called and those that must not | 80% of cases |
+| Resume review (`ResumeReviewEvalTest`) | the same resume reviewed 3 times, and a fitting resume against an unrelated one | spread ≤ 15 points, gap ≥ 20 |
+
+```bash
+cd backend
+ANTHROPIC_API_KEY=sk-ant-... ./mvnw test -Peval
+```
+
+On Windows PowerShell: `$env:ANTHROPIC_API_KEY = "sk-ant-..."; .\mvnw.cmd test -Peval`.
+
+They are tagged `eval`: the normal build and CI leave them out, `-Peval` runs only them,
+and without a key they are skipped. A run makes roughly 30 model calls - every case is one
+or more, since a tool call is a round trip - and writes `target/eval/assistant-tool-choice.md`
+and `target/eval/resume-review-consistency.md`. Run them after changing the system prompt,
+a tool description or `ANTHROPIC_MODEL`, and compare the reports.
 
 ### Postman
 

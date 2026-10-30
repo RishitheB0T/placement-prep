@@ -1651,6 +1651,7 @@
                   "pm.test(\"answers, or says the AI is not switched on\", () => pm.expect(pm.response.code).to.be.oneOf([200, 503]));",
                   "if (pm.response.code === 200) {",
                   "  pm.test(\"has a reply\", () => pm.expect(pm.response.json().reply).to.be.a(\"string\").and.not.empty);",
+                  "  pm.test(\"says which tools it used\", () => pm.expect(pm.response.json().toolsUsed).to.be.an(\"array\"));",
                   "}"
                 ]
               }
