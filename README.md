@@ -11,7 +11,7 @@ tool calling · semantic search with pgvector
 <br/>
 
 [![CI](https://github.com/RishitheB0T/placement-prep/actions/workflows/ci.yml/badge.svg)](https://github.com/RishitheB0T/placement-prep/actions/workflows/ci.yml)
-![Tests](https://img.shields.io/badge/tests-315_passing-22c55e?logo=checkmarx&logoColor=white)
+![Tests](https://img.shields.io/badge/tests-317_passing-22c55e?logo=checkmarx&logoColor=white)
 ![Endpoints](https://img.shields.io/badge/REST_endpoints-35-8b5cf6)
 ![Postman](https://img.shields.io/badge/Postman-85_requests-FF6C37?logo=postman&logoColor=white)
 
@@ -100,7 +100,7 @@ filter chain, plus row-level ownership: a recruiter only ever sees the drives th
 <td valign="top">
 
 ### 🧱 Built to be trusted
-Flyway-owned schema, validation that mirrors every column, RFC 9457 errors, **226 backend
+Flyway-owned schema, validation that mirrors every column, RFC 9457 errors, **228 backend
 tests on real PostgreSQL + pgvector** via Testcontainers, CI on every push.
 
 </td>
@@ -211,6 +211,7 @@ flowchart LR
 - 🧩 **Controllers speak HTTP, services speak the domain** - services return `Optional` or throw a reason-carrying exception, so scheduled jobs reuse them untouched.
 - 🛡️ **Two layers of access control** - role rules in the filter chain (`403`), ownership lookups that answer `404` so nobody can confirm another person's records exist.
 - 📬 **A database table as a job queue** - resume reviews survive restarts with no message broker; no connection is held during the slow model call.
+- 🧵 **Java 21 virtual threads** - every request runs on one, so slow model calls cannot use up a thread pool; the scheduled jobs keep a small pool of their own.
 - 🔁 **At-most-once reminders** - a partial unique index makes "never send the same reminder twice" a database rule.
 
 <br/>
@@ -247,7 +248,7 @@ flowchart LR
 
 | Layer | Technology |
 | --- | --- |
-| **Backend** | Java 21 · Spring Boot 4.1 · Spring Web MVC · Spring Security 7 + JWT (jjwt) · Spring Data JPA · Bean Validation · Flyway |
+| **Backend** | Java 21 (virtual threads) · Spring Boot 4.1 · Spring Web MVC · Spring Security 7 + JWT (jjwt) · Spring Data JPA · Bean Validation · Flyway |
 | **AI** | Spring AI 2.0 · Anthropic Claude (chat, tool calling, native PDF reading) · all-MiniLM-L6-v2 via ONNX Runtime · PDFBox |
 | **Data** | PostgreSQL 16 · pgvector (HNSW, cosine) |
 | **Frontend** | React 19 · TypeScript · Vite · React Router 7 · Axios · Tailwind CSS 4 |
@@ -289,7 +290,7 @@ Configuration, ports and every command are in the [development guide](docs/DEVEL
 
 | | |
 | --- | --- |
-| 🧪 **226 backend tests** | Integration tests on **real PostgreSQL + pgvector** (Testcontainers) with real signed JWTs; unit tests for every service; the AI tool-calling loop tested against a fake Anthropic server |
+| 🧪 **228 backend tests** | Integration tests on **real PostgreSQL + pgvector** (Testcontainers) with real signed JWTs; unit tests for every service; the AI tool-calling loop tested against a fake Anthropic server |
 | 🧪 **89 frontend tests** | Vitest + React Testing Library - every role gets exactly the controls it should |
 | 📮 **85 Postman requests** | Every endpoint, each restricted one called by a role that may and one that may not - 114 assertions |
 | 🔁 **CI** | GitHub Actions builds and tests backend and frontend on every push |

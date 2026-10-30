@@ -587,9 +587,19 @@ erDiagram
 | Deadline reminders | every 15 min, first after 1 min | section 6 |
 | Orphan file sweep | every 6 h | deletes stored PDFs no row points at, if over an hour old |
 
-All use `fixedDelay`, so a run never overlaps itself, and two scheduler threads keep a
-slow model call from holding up the reminders. In tests, the automatic runs are pushed a
-day out and tests trigger the jobs themselves.
+All use `fixedDelay`, so a run never overlaps itself, and each job has a scheduler thread
+of its own, so a slow model call never holds up the reminders. In tests, the automatic
+runs are pushed a day out and tests trigger the jobs themselves.
+
+### Threads
+
+| Work | Runs on | Why |
+| --- | --- | --- |
+| Every HTTP request | a **Java 21 virtual thread** (`spring.threads.virtual.enabled`) | A request waiting on the database or the model parks its virtual thread, which costs next to nothing. With Tomcat's 200 pooled threads, 200 slow assistant chats would leave every other request queueing. |
+| The three scheduled jobs | a pool of **3 platform threads**, declared in `PlacementprepApplication` | With virtual threads on, Spring Boot's own scheduler runs every fixed-delay job on *one* shared thread. A pool keeps the jobs independent; three jobs gain nothing from virtual threads. |
+
+`PlacementprepApplicationTests` covers both: a real HTTP request must arrive on a virtual
+thread, and a second job must start while the first is still busy.
 
 ---
 
