@@ -14,9 +14,18 @@ spring:
     problemdetails:
       enabled: true
 
+  # Every request runs on a Java 21 virtual thread rather than one of Tomcat's 200 pooled
+  # threads. A request that is waiting - on the database, or for half a minute on the
+  # model - parks its virtual thread, which costs next to nothing, so a burst of assistant
+  # chats can no longer use up the pool and leave every other request queueing.
+  threads:
+    virtual:
+      enabled: true
+
   # Scheduled jobs share one thread by default. One each instead - the resume review, the
   # deadline reminders and the orphaned-file sweep - so a slow review (a model call can
   # take half a minute, and a run drains the whole queue) never holds up the others.
+  # PlacementprepApplication.taskScheduler explains why this pool is declared by hand.
   task:
     scheduling:
       pool:
