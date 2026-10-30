@@ -490,6 +490,39 @@ worded message can reach another student's data. Chat history is sent as typed m
 objects rather than pasted into a template, at most 8 tool calls run per message, and the
 server stores no conversation.
 
+### Streaming the reply
+
+The Assistant page uses `POST /api/agent/chat/stream`, so a reply appears word by word
+instead of after a long wait.
+
+```mermaid
+sequenceDiagram
+    participant B as Browser<br/>api.postForEvents
+    participant C as AgentController
+    participant S as AgentService
+    participant AI as Claude
+
+    B->>C: POST /chat/stream (token checked once, here)
+    C->>S: stream(student, message, history)
+    S->>AI: the same prompt, stream=true
+    AI-->>S: text pieces... (a tool call pauses the stream while Java runs it)
+    S-->>C: Flux of text pieces
+    C-->>B: event:token {"text": ...}  - one per piece
+    C-->>B: event:done {"reply": whole reply}
+    Note over B,C: the request ends with an ASYNC dispatch,<br/>permitted like ERROR and FORWARD
+```
+
+| Detail | Why |
+| --- | --- |
+| `AgentService.chat` and `.stream` share one private `prompt(...)` | the two can never drift apart - same system prompt, history and tools |
+| Event data is JSON, even for a piece of text | Spring writes `data:` with no space, and SSE strips one leading space - a raw `" world"` would lose it |
+| Failure mid-stream is an `error` event | the `200` has already been sent, so the problem detail travels as an event instead |
+| `X-Accel-Buffering: no` header | nginx (Docker, Render) would otherwise hold the events back until the reply ends |
+| `spring.mvc.async.request-timeout: 3m` | Tomcat's default 30 s is shorter than a reply that calls tools |
+
+`AgentApiTest` streams against the fake Anthropic server too, including a tool call in the
+middle of a stream and a provider failure.
+
 ---
 
 ## 10. The data model

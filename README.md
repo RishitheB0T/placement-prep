@@ -11,8 +11,8 @@ tool calling · semantic search with pgvector
 <br/>
 
 [![CI](https://github.com/RishitheB0T/placement-prep/actions/workflows/ci.yml/badge.svg)](https://github.com/RishitheB0T/placement-prep/actions/workflows/ci.yml)
-![Tests](https://img.shields.io/badge/tests-317_passing-22c55e?logo=checkmarx&logoColor=white)
-![Endpoints](https://img.shields.io/badge/REST_endpoints-35-8b5cf6)
+![Tests](https://img.shields.io/badge/tests-328_passing-22c55e?logo=checkmarx&logoColor=white)
+![Endpoints](https://img.shields.io/badge/REST_endpoints-36-8b5cf6)
 ![Postman](https://img.shields.io/badge/Postman-85_requests-FF6C37?logo=postman&logoColor=white)
 
 ![Java](https://img.shields.io/badge/Java-21-ED8B00?logo=openjdk&logoColor=white)
@@ -77,7 +77,7 @@ job-description PDF**. Runs in a background queue.
 ### 🤖 An assistant that acts
 Ask in plain English - *"which drives can I apply to?"*, *"apply me to Nimbus"*. Through
 **Spring AI `@Tool` calling** the model invokes real backend methods, under the same rules
-as the buttons.
+as the buttons - and the reply **streams in word by word** over Server-Sent Events.
 
 </td>
 <td valign="top">
@@ -100,7 +100,7 @@ filter chain, plus row-level ownership: a recruiter only ever sees the drives th
 <td valign="top">
 
 ### 🧱 Built to be trusted
-Flyway-owned schema, validation that mirrors every column, RFC 9457 errors, **228 backend
+Flyway-owned schema, validation that mirrors every column, RFC 9457 errors, **232 backend
 tests on real PostgreSQL + pgvector** via Testcontainers, CI on every push.
 
 </td>
@@ -236,6 +236,7 @@ flowchart LR
 | **Retrieval (R)** | PDFs are read with PDFBox, split by tokens, embedded **inside the JVM** and stored in pgvector with an HNSW index. A search embeds the question the same way and returns the nearest passages by cosine distance. |
 | **Generation (G)** | The assistant's `searchJobDescriptions` tool and the resume reviewer put the retrieved passages in front of Claude, so answers and feedback quote what the job actually asks for. |
 | **Tool calling** | Five `@Tool` methods - eligible drives, all drives, my applications, apply, search. Spring AI runs the loop: the model asks for a tool, the Java method runs, the result goes back. Tools are bound to the signed-in student, so the model can never reach anyone else's data. |
+| **Streaming** | The assistant's reply is sent as Server-Sent Events while Claude writes it - tool calls still run part-way through - and the page reads the stream with `fetch`. |
 | **Structured output** | The resume review comes back as JSON parsed straight into a Java record - score, summary, strengths, improvements - with the score clamped to 0-100. |
 
 <br/>
@@ -290,9 +291,9 @@ Configuration, ports and every command are in the [development guide](docs/DEVEL
 
 | | |
 | --- | --- |
-| 🧪 **228 backend tests** | Integration tests on **real PostgreSQL + pgvector** (Testcontainers) with real signed JWTs; unit tests for every service; the AI tool-calling loop tested against a fake Anthropic server |
-| 🧪 **89 frontend tests** | Vitest + React Testing Library - every role gets exactly the controls it should |
-| 📮 **85 Postman requests** | Every endpoint, each restricted one called by a role that may and one that may not - 114 assertions |
+| 🧪 **232 backend tests** | Integration tests on **real PostgreSQL + pgvector** (Testcontainers) with real signed JWTs; unit tests for every service; the AI tool-calling loop - streamed and not - tested against a fake Anthropic server |
+| 🧪 **96 frontend tests** | Vitest + React Testing Library - every role gets exactly the controls it should |
+| 📮 **87 Postman requests** | Every endpoint, each restricted one called by a role that may and one that may not - 116 assertions |
 | 🔁 **CI** | GitHub Actions builds and tests backend and frontend on every push |
 | 🧹 **Lint** | oxlint - 0 warnings |
 
@@ -329,7 +330,7 @@ placement-prep/
 | Document | What's inside |
 | --- | --- |
 | 🏗️ [**Architecture**](docs/ARCHITECTURE.md) | Every flow with diagrams - request path, sign-in, roles, the application lifecycle, reminders, the review queue, RAG, tool calling, the data model |
-| 📡 [**API reference**](docs/API.md) | All 35 endpoints with roles, fields, status codes and examples |
+| 📡 [**API reference**](docs/API.md) | All 36 endpoints with roles, fields, status codes and examples |
 | 🧑‍💻 [**Development guide**](docs/DEVELOPMENT.md) | Setup, configuration, commands, testing and CI |
 
 <br/>
@@ -341,7 +342,7 @@ placement-prep/
 - ✅ Four roles with JWT, recruiter scoping, admin tools
 - ✅ Notifications and deadline reminders
 - ✅ AI resume feedback, grounded in the job description
-- ✅ AI assistant with tool calling
+- ✅ AI assistant with tool calling and streamed replies
 - ✅ Semantic search over job descriptions (RAG, pgvector)
 - ✅ Docker images and CI
 - 🔜 Company-wise AI mock interviews

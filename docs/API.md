@@ -1,8 +1,8 @@
 # API reference
 
-35 REST endpoints, all JSON. Every path needs `Authorization: Bearer <token>` except the
-three marked **public**. Every error is an [RFC 9457](https://www.rfc-editor.org/rfc/rfc9457)
-problem detail (see [Errors](#errors)).
+36 REST endpoints, all JSON apart from one stream of events. Every path needs
+`Authorization: Bearer <token>` except the three marked **public**. Every error is an
+[RFC 9457](https://www.rfc-editor.org/rfc/rfc9457) problem detail (see [Errors](#errors)).
 
 **Who** column: **S** student · **C** coordinator · **R** recruiter · **A** admin (the
 person in charge). A recruiter's access to drives and applicants is limited to the drives
@@ -174,6 +174,7 @@ run, just without job-description excerpts.
 | Method | Path | Purpose | Who | Success / errors |
 | --- | --- | --- | --- | --- |
 | `POST` | `/api/agent/chat` | ask in plain English | S C | `200` `{reply}` · `400` · `502` provider failed · `503` no API key |
+| `POST` | `/api/agent/chat/stream` | the same, with the reply streamed as it is written | S C | `200` `text/event-stream` · `400` · `503` no API key |
 
 ```json
 { "message": "Which drives can I still apply to?",
@@ -182,6 +183,27 @@ run, just without job-description excerpts.
 
 `message` is 1-2000 characters; `history` up to 20 turns of up to 4000 characters. The
 server keeps no conversation - the client sends the recent turns each time.
+
+**Streaming.** Both endpoints take the same body. `/chat/stream` answers with
+[Server-Sent Events](https://html.spec.whatwg.org/multipage/server-sent-events.html), each
+with JSON data:
+
+```text
+event:token
+data:{"text":"You can apply to "}
+
+event:token
+data:{"text":"Zoho."}
+
+event:done
+data:{"reply":"You can apply to Zoho."}
+```
+
+Any number of `token` events, then exactly one `done` - or, if the model provider fails
+after the stream has begun (the status is already `200` by then), one `error` event whose
+data is the usual problem detail with `"status": 502`. A `400` or `503` is decided before
+streaming starts and arrives as an ordinary error response. The browser's `EventSource`
+only sends `GET`, so the web app reads the stream with `fetch`.
 
 ---
 

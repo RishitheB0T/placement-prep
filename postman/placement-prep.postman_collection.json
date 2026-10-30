@@ -1655,6 +1655,46 @@
           ]
         },
         {
+          "name": "Stream the assistant's reply (student)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{studentToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/agent/chat/stream",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"message\": \"Which drives am I eligible for?\",\n  \"history\": []\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Server-Sent Events while the reply is written, ending in a done event, when ANTHROPIC_API_KEY",
+                  "// is set on the server; 503 before anything is streamed when it is not.",
+                  "pm.test(\"streams, or says the AI is not switched on\", () => pm.expect(pm.response.code).to.be.oneOf([200, 503]));",
+                  "if (pm.response.code === 200) {",
+                  "  pm.test(\"is an event stream that finishes\", () => {",
+                  "    pm.expect(pm.response.headers.get(\"Content-Type\")).to.include(\"text/event-stream\");",
+                  "    pm.expect(pm.response.text()).to.include(\"event:done\");",
+                  "  });",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
           "name": "Ask the assistant as the admin -> 403",
           "request": {
             "method": "POST",
@@ -1669,6 +1709,38 @@
               }
             ],
             "url": "{{baseUrl}}/api/agent/chat",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"message\": \"Hello\"\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"403 Forbidden\", () => pm.response.to.have.status(403));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Stream as the admin -> 403",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/agent/chat/stream",
             "body": {
               "mode": "raw",
               "raw": "{\n  \"message\": \"Hello\"\n}"
