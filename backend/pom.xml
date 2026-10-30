@@ -28,6 +28,11 @@
 	</scm>
 	<properties>
 		<java.version>21</java.version>
+		<!-- Which JUnit tags run. Tests tagged "eval" call the real AI model: they cost money
+		     and their results vary, so a normal build leaves them out. The eval profile at
+		     the bottom swaps the two round. -->
+		<test.groups></test.groups>
+		<test.excludedGroups>eval</test.excludedGroups>
 	</properties>
 
 	<!--
@@ -197,7 +202,27 @@
 				<groupId>org.springframework.boot</groupId>
 				<artifactId>spring-boot-maven-plugin</artifactId>
 			</plugin>
+			<plugin>
+				<groupId>org.apache.maven.plugins</groupId>
+				<artifactId>maven-surefire-plugin</artifactId>
+				<configuration>
+					<groups>${test.groups}</groups>
+					<excludedGroups>${test.excludedGroups}</excludedGroups>
+				</configuration>
+			</plugin>
 		</plugins>
 	</build>
+
+	<profiles>
+		<!-- ./mvnw test -Peval runs the AI evaluations and nothing else. They need
+		     ANTHROPIC_API_KEY set, and are skipped without it; reports go to target/eval/. -->
+		<profile>
+			<id>eval</id>
+			<properties>
+				<test.groups>eval</test.groups>
+				<test.excludedGroups></test.excludedGroups>
+			</properties>
+		</profile>
+	</profiles>
 
 </project>
