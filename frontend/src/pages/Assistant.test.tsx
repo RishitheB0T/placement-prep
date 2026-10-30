@@ -22,7 +22,7 @@ describe("Assistant", () => {
   });
 
   it("shows the assistant's reply under the student's message", async () => {
-    vi.mocked(agentApi.streamAssistant).mockResolvedValue({ reply: "You are eligible for Zoho." });
+    vi.mocked(agentApi.streamAssistant).mockResolvedValue({ reply: "You are eligible for Zoho.", toolsUsed: [] });
     renderPage(<Assistant />);
 
     await userEvent.type(screen.getByLabelText("Message"), "Which drives can I apply to?");
@@ -51,14 +51,14 @@ describe("Assistant", () => {
     expect(screen.queryByText("Thinking...")).not.toBeInTheDocument();
 
     // ...and finishing it leaves one message, not the partial one plus the whole one.
-    act(() => finish({ reply: "You are eligible for Zoho." }));
+    act(() => finish({ reply: "You are eligible for Zoho.", toolsUsed: [] }));
     expect(await screen.findAllByText("You are eligible for Zoho.")).toHaveLength(1);
   });
 
   it("sends the earlier turns along with a follow-up", async () => {
     vi.mocked(agentApi.streamAssistant)
-      .mockResolvedValueOnce({ reply: "Zoho and TCS." })
-      .mockResolvedValueOnce({ reply: "Zoho closes on 30 June." });
+      .mockResolvedValueOnce({ reply: "Zoho and TCS.", toolsUsed: ["eligibleDrives"] })
+      .mockResolvedValueOnce({ reply: "Zoho closes on 30 June.", toolsUsed: [] });
     renderPage(<Assistant />);
 
     await userEvent.click(await screen.findByRole("button", { name: "Which drives am I eligible for?" }));
@@ -70,10 +70,25 @@ describe("Assistant", () => {
       "When does the first close?",
       [
         { text: "Which drives am I eligible for?", fromAssistant: false },
-        { text: "Zoho and TCS.", fromAssistant: true },
+        // The page hands over its turns as shown; streamAssistant sends only what the backend reads.
+        { text: "Zoho and TCS.", fromAssistant: true, toolsUsed: ["eligibleDrives"] },
       ],
       expect.any(Function),
     );
+  });
+
+  it("lists the tools the assistant used under its reply", async () => {
+    vi.mocked(agentApi.streamAssistant).mockResolvedValue({
+      reply: "Done - you have applied to Zoho.",
+      toolsUsed: ["eligibleDrives", "applyToDrive"],
+    });
+    renderPage(<Assistant />);
+
+    await userEvent.type(screen.getByLabelText("Message"), "Apply me to Zoho{Enter}");
+
+    const lookedUp = await screen.findByRole("list", { name: "Looked up" });
+    expect(lookedUp).toHaveTextContent("Your eligible drives");
+    expect(lookedUp).toHaveTextContent("Apply to a drive");
   });
 
   it("explains when the AI is not switched on", async () => {

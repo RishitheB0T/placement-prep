@@ -24,9 +24,11 @@ export async function streamAssistant(
   history: ChatTurn[],
   onText: (text: string) => void,
 ): Promise<ChatResponse> {
+  // Only the two fields the backend reads: a turn on screen may carry more, such as the
+  // tools a reply used.
   const recent = history.slice(-MAX_HISTORY_TURNS).map((turn) => ({
-    ...turn,
     text: turn.text.slice(0, MAX_TURN_LENGTH),
+    fromAssistant: turn.fromAssistant,
   }));
 
   for await (const { event, data } of api.postForEvents("/api/agent/chat/stream", { message, history: recent })) {

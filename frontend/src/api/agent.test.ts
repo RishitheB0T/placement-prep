@@ -31,14 +31,14 @@ describe("streamAssistant", () => {
 
   it("hands over each piece as it arrives, then the whole reply", async () => {
     fetchMock.mockResolvedValue(
-      events(["token", { text: "You can " }], ["token", { text: "apply." }], ["done", { reply: "You can apply." }]),
+      events(["token", { text: "You can " }], ["token", { text: "apply." }], ["done", { reply: "You can apply.", toolsUsed: [] }]),
     );
     const pieces: string[] = [];
 
     const response = await streamAssistant("Which drives?", [], (text) => pieces.push(text));
 
     expect(pieces).toEqual(["You can ", "apply."]);
-    expect(response).toEqual({ reply: "You can apply." });
+    expect(response).toEqual({ reply: "You can apply.", toolsUsed: [] });
   });
 
   it("turns an error event into an ApiError carrying the backend's message", async () => {
@@ -61,8 +61,17 @@ describe("streamAssistant", () => {
     await expect(streamAssistant("Hello", [], () => {})).rejects.toMatchObject({ status: 502 });
   });
 
+  it("sends each earlier turn as just its text and who said it", async () => {
+    fetchMock.mockResolvedValue(events(["done", { reply: "Sure.", toolsUsed: [] }]));
+    const shown = { text: "Zoho and TCS.", fromAssistant: true, toolsUsed: ["eligibleDrives"] };
+
+    await streamAssistant("And the deadline?", [shown], () => {});
+
+    expect((await sentBody()).history).toEqual([{ text: "Zoho and TCS.", fromAssistant: true }]);
+  });
+
   it("sends only as much history as the backend accepts", async () => {
-    fetchMock.mockResolvedValue(events(["done", { reply: "Sure." }]));
+    fetchMock.mockResolvedValue(events(["done", { reply: "Sure.", toolsUsed: [] }]));
     const history: ChatTurn[] = Array.from({ length: 25 }, (_, i) => ({
       text: i === 24 ? "x".repeat(5000) : `turn ${i}`,
       fromAssistant: i % 2 === 1,

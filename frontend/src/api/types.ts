@@ -193,6 +193,8 @@ export interface ChatTurn {
 /** Returned by POST /api/agent/chat. */
 export interface ChatResponse {
   reply: string;
+  /** The tools the assistant called to answer, such as "eligibleDrives"; empty if none. */
+  toolsUsed: string[];
 }
 
 /** One piece of a reply that is still being written. */

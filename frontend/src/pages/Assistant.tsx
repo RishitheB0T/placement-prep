@@ -8,7 +8,19 @@ import { ApiError } from "../api/client";
 import { searchJobDescriptions } from "../api/jobDescriptions";
 import type { ChatTurn, JobDescriptionMatch, UserProfile } from "../api/types";
 import AppHeader from "../components/AppHeader";
-import { CompanyAvatar, Icon, PageHero, Spinner } from "../components/ui";
+import { CompanyAvatar, Icon, PageHero, Spinner, type IconName } from "../components/ui";
+
+/** How each of the assistant's tools is named on screen, under a reply that used it. */
+const TOOL_LABELS: Record<string, { label: string; icon: IconName }> = {
+  eligibleDrives: { label: "Your eligible drives", icon: "check" },
+  allDrives: { label: "All drives", icon: "briefcase" },
+  myApplications: { label: "Your applications", icon: "list" },
+  applyToDrive: { label: "Apply to a drive", icon: "send" },
+  searchJobDescriptions: { label: "Job-description search", icon: "search" },
+};
+
+/** A message on screen: what is sent back as history, plus the tools a reply used. */
+type Turn = ChatTurn & { toolsUsed?: string[] };
 
 const SUGGESTIONS = [
   "Which drives am I eligible for?",
@@ -33,7 +45,7 @@ export default function Assistant() {
 
   const [profile, setProfile] = useState<UserProfile | null>(null);
 
-  const [turns, setTurns] = useState<ChatTurn[]>([]);
+  const [turns, setTurns] = useState<Turn[]>([]);
   const [draft, setDraft] = useState("");
   const [thinking, setThinking] = useState(false);
   // The reply written so far while it streams in; null when no reply is arriving.
@@ -85,10 +97,10 @@ export default function Assistant() {
     setThinking(true);
 
     try {
-      const { reply } = await streamAssistant(message, history, (piece) =>
+      const { reply, toolsUsed } = await streamAssistant(message, history, (piece) =>
         setPartial((sofar) => (sofar ?? "") + piece),
       );
-      setTurns((current) => [...current, { text: reply, fromAssistant: true }]);
+      setTurns((current) => [...current, { text: reply, fromAssistant: true, toolsUsed }]);
     } catch (e) {
       if (e instanceof ApiError && e.status === 401) {
         navigate("/login", { replace: true });
@@ -175,7 +187,7 @@ export default function Assistant() {
 
               {turns.map((turn, index) =>
                 turn.fromAssistant ? (
-                  <AssistantBubble key={index} text={turn.text} />
+                  <AssistantBubble key={index} text={turn.text} toolsUsed={turn.toolsUsed} />
                 ) : (
                   <div key={index} className="animate-pop flex justify-end">
                     <p className="max-w-[85%] rounded-2xl rounded-tr-sm bg-linear-to-r from-indigo-600 to-fuchsia-500 px-4 py-3 text-sm leading-relaxed whitespace-pre-wrap text-white shadow-md shadow-indigo-500/20">
@@ -293,20 +305,41 @@ export default function Assistant() {
 
 /**
  * One of the assistant's messages. While it is still being written, a blinking bar after
- * the text shows that more is coming.
+ * the text shows that more is coming; once finished, the tools it used are listed under
+ * it, so a student can see the answer came from their real data.
  */
-function AssistantBubble({ text, writing = false }: { text: string; writing?: boolean }) {
+function AssistantBubble({
+  text,
+  writing = false,
+  toolsUsed = [],
+}: {
+  text: string;
+  writing?: boolean;
+  toolsUsed?: string[];
+}) {
   return (
     <div className="animate-pop flex items-start gap-3">
       <span className="grid size-8 shrink-0 place-items-center rounded-xl bg-linear-to-br from-violet-500 to-fuchsia-500 text-white">
         <Icon name="sparkles" className="size-4" />
       </span>
-      <p className="max-w-[85%] rounded-2xl rounded-tl-sm bg-slate-50 px-4 py-3 text-sm leading-relaxed whitespace-pre-wrap text-slate-800 ring-1 ring-slate-100">
-        {text}
-        {writing && (
-          <span aria-hidden="true" className="ml-0.5 inline-block h-4 w-1.5 animate-pulse rounded-sm bg-violet-400 align-text-bottom" />
+      <div className="max-w-[85%]">
+        <p className="rounded-2xl rounded-tl-sm bg-slate-50 px-4 py-3 text-sm leading-relaxed whitespace-pre-wrap text-slate-800 ring-1 ring-slate-100">
+          {text}
+          {writing && (
+            <span aria-hidden="true" className="ml-0.5 inline-block h-4 w-1.5 animate-pulse rounded-sm bg-violet-400 align-text-bottom" />
+          )}
+        </p>
+        {toolsUsed.length > 0 && (
+          <ul aria-label="Looked up" className="mt-2 flex flex-wrap gap-1.5">
+            {toolsUsed.map((tool) => (
+              <li key={tool} className="chip bg-violet-50 text-violet-700 ring-1 ring-violet-100">
+                <Icon name={TOOL_LABELS[tool]?.icon ?? "sparkles"} className="size-3.5" />
+                {TOOL_LABELS[tool]?.label ?? tool}
+              </li>
+            ))}
+          </ul>
         )}
-      </p>
+      </div>
     </div>
   );
 }
