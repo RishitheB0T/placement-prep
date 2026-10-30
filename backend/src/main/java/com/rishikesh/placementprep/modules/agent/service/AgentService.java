@@ -17,6 +17,8 @@ import com.rishikesh.placementprep.modules.auth.dto.UserProfileDTO;
 import com.rishikesh.placementprep.modules.drive.service.DriveService;
 import com.rishikesh.placementprep.modules.knowledgebase.service.JobDescriptionService;
 
+import reactor.core.publisher.Flux;
+
 /**
  * The placement assistant: answers a student's plain-English messages, calling backend
  * service methods through {@link AssistantTools} whenever it needs real data.
@@ -63,6 +65,26 @@ public class AgentService {
     }
 
     public String chat(UserProfileDTO student, String message, List<ChatRequest.Turn> history) {
+        return prompt(student, message, history).call().content();
+    }
+
+    /**
+     * The same conversation as {@link #chat}, but the reply comes back in pieces as the
+     * model writes it, instead of all at once at the end. Tool calls still happen part-way
+     * through: Spring AI pauses the stream, runs the tool, sends the result back to the
+     * model and carries on streaming its answer.
+     *
+     * <p>Nothing is sent to the model until the returned Flux is subscribed to.
+     */
+    public Flux<String> stream(UserProfileDTO student, String message, List<ChatRequest.Turn> history) {
+        return prompt(student, message, history).stream().content()
+                // Some stream events (the start of a message, a tool call) carry no text.
+                .filter(text -> !text.isEmpty());
+    }
+
+    /** The request both {@link #chat} and {@link #stream} send, before it is sent. */
+    private ChatClient.ChatClientRequestSpec prompt(UserProfileDTO student, String message,
+                                                    List<ChatRequest.Turn> history) {
         // 1. The conversation so far, then the new message. Built as message objects rather
         //    than passed through .user(text): plain text there can be read as a template,
         //    and a student typing "{" would then break the request.
@@ -75,12 +97,10 @@ public class AgentService {
         // 2. Tools bound to this one student
         AssistantTools tools = new AssistantTools(student, driveService, applicationService, jobDescriptionService);
 
-        // 3. Ask. Today's date lets the model reason about deadlines.
+        // 3. What to ask. Today's date lets the model reason about deadlines.
         return chatClient.prompt()
                 .system(SYSTEM_PROMPT + "\nToday's date is " + LocalDate.now() + ".")
                 .messages(messages)
-                .tools(tools)
-                .call()
-                .content();
+                .tools(tools);
     }
 }

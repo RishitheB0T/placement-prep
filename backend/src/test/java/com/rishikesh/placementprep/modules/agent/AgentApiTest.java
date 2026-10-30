@@ -1,8 +1,11 @@
 package com.rishikesh.placementprep.modules.agent;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.asyncDispatch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.request;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import java.io.IOException;
@@ -29,6 +32,7 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.MvcResult;
 
 import com.rishikesh.placementprep.TestcontainersConfiguration;
 import com.rishikesh.placementprep.modules.application.model.ApplicationStatus;
@@ -191,6 +195,65 @@ class AgentApiTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"message\": \"Hello\"}"))
                 .andExpect(status().isForbidden());
+        mockMvc.perform(post("/api/agent/chat/stream")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + jwtService.generateToken("pic@tnp.nits.ac.in", Role.TNP_PIC))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"message\": \"Hello\"}"))
+                .andExpect(status().isForbidden());
+
+        assertThat(FAKE.requests()).isEmpty();
+    }
+
+    @Test
+    void aStreamedReplyArrivesInPiecesThenWhole() throws Exception {
+        FAKE.respondWith(FakeAnthropic.streamedText("You can ", "apply to ", "Zoho."));
+
+        String events = eventsOf(startStream("Which drives can I apply to?"));
+
+        // Each piece in order - the leading and trailing spaces kept - then the whole reply.
+        assertThat(events).containsSubsequence(
+                "event:token", "data:{\"text\":\"You can \"}",
+                "event:token", "data:{\"text\":\"apply to \"}",
+                "event:token", "data:{\"text\":\"Zoho.\"}",
+                "event:done", "data:{\"reply\":\"You can apply to Zoho.\"}");
+        assertThat(FAKE.requests().getFirst()).contains("\"stream\":true");
+    }
+
+    @Test
+    void aStreamedReplyCanStillCallAToolPartWay() throws Exception {
+        FAKE.respondWith(
+                FakeAnthropic.streamedToolUse("applyToDrive", "{\"driveId\": " + driveId + "}"),
+                FakeAnthropic.streamedText("Done - you have applied to Zoho."));
+
+        String events = eventsOf(startStream("Please apply me to the Zoho drive"));
+
+        assertThat(events).contains("event:done", "Done - you have applied to Zoho.");
+        assertThat(applicationRepository.findByStudentIdAndDriveId(studentId, driveId)).isPresent();
+        assertThat(FAKE.requests()).hasSize(2);
+        assertThat(FAKE.requests().get(1)).contains("tool_result", "Applied to Zoho");
+    }
+
+    @Test
+    void aProviderFailureWhileStreamingArrivesAsAnErrorEvent() throws Exception {
+        FAKE.failWith(400);
+
+        String events = eventsOf(startStream("Hello"));
+
+        // The status was already 200 when the stream began, so the failure is an event,
+        // carrying the same problem-detail fields as every other error.
+        assertThat(events).contains("event:error",
+                "\"status\":502", "\"detail\":\"The assistant could not answer just now. Try again in a moment.\"");
+        assertThat(events).doesNotContain("event:done");
+    }
+
+    @Test
+    void anInvalidStreamRequestIsRejectedBeforeAnythingIsStreamed() throws Exception {
+        mockMvc.perform(post("/api/agent/chat/stream")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + studentToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"message\": \"\"}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(request().asyncNotStarted());
 
         assertThat(FAKE.requests()).isEmpty();
     }
@@ -200,6 +263,30 @@ class AgentApiTest {
                 .header(HttpHeaders.AUTHORIZATION, "Bearer " + studentToken)
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("{\"message\": \"" + message + "\"}");
+    }
+
+    /** Sends a message to the streaming endpoint and returns as soon as the stream has begun. */
+    private MvcResult startStream(String message) throws Exception {
+        return mockMvc.perform(post("/api/agent/chat/stream")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + studentToken)
+                        .accept(MediaType.TEXT_EVENT_STREAM)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"message\": \"" + message + "\"}"))
+                .andExpect(request().asyncStarted())
+                .andReturn();
+    }
+
+    /**
+     * Waits for the stream to end, then finishes the request the way the servlet container
+     * would - a second, ASYNC dispatch through the security filters - and returns the raw
+     * event text that was sent.
+     */
+    private String eventsOf(MvcResult stream) throws Exception {
+        stream.getAsyncResult();
+        mockMvc.perform(asyncDispatch(stream))
+                .andExpect(status().isOk())
+                .andExpect(content().contentTypeCompatibleWith(MediaType.TEXT_EVENT_STREAM));
+        return stream.getResponse().getContentAsString(StandardCharsets.UTF_8);
     }
 
     /**
@@ -235,7 +322,8 @@ class AgentApiTest {
                         }
                     }
                     byte[] bytes = body.getBytes(StandardCharsets.UTF_8);
-                    exchange.getResponseHeaders().add("Content-Type", "application/json");
+                    boolean streamed = body.startsWith("event:");
+                    exchange.getResponseHeaders().add("Content-Type", streamed ? "text/event-stream" : "application/json");
                     exchange.sendResponseHeaders(status, bytes.length);
                     try (OutputStream out = exchange.getResponseBody()) {
                         out.write(bytes);
@@ -288,6 +376,62 @@ class AgentApiTest {
                     {"id": "msg_01", "type": "message", "role": "assistant", "model": "claude-opus-5-5",
                      "content": %s, "stop_reason": "%s", "stop_sequence": null,
                      "usage": {"input_tokens": 10, "output_tokens": 5}}""".formatted(content, stopReason);
+        }
+
+        /**
+         * The same reply as {@link #text}, as the stream of events Claude sends when the
+         * request asks to stream: the text arrives in the given pieces.
+         */
+        static String streamedText(String... pieces) {
+            StringBuilder events = new StringBuilder(messageStart());
+            events.append(event("content_block_start", """
+                    {"type": "content_block_start", "index": 0, "content_block": {"type": "text", "text": ""}}"""));
+            for (String piece : pieces) {
+                events.append(event("content_block_delta", """
+                        {"type": "content_block_delta", "index": 0,
+                         "delta": {"type": "text_delta", "text": "%s"}}""".formatted(piece)));
+            }
+            events.append(event("content_block_stop", """
+                    {"type": "content_block_stop", "index": 0}"""));
+            return events.append(messageEnd("end_turn")).toString();
+        }
+
+        /** The same request for a tool as {@link #toolUse}, streamed. */
+        static String streamedToolUse(String toolName, String inputJson) {
+            // The tool's input arrives as text to be joined up and parsed - a JSON string
+            // holding JSON - so its quotes are escaped.
+            String partialJson = "\"" + inputJson.replace("\"", "\\\"") + "\"";
+            return messageStart()
+                    + event("content_block_start", """
+                            {"type": "content_block_start", "index": 0,
+                             "content_block": {"type": "tool_use", "id": "toolu_01", "name": "%s", "input": {}}}"""
+                            .formatted(toolName))
+                    + event("content_block_delta", """
+                            {"type": "content_block_delta", "index": 0,
+                             "delta": {"type": "input_json_delta", "partial_json": %s}}""".formatted(partialJson))
+                    + event("content_block_stop", """
+                            {"type": "content_block_stop", "index": 0}""")
+                    + messageEnd("tool_use");
+        }
+
+        private static String messageStart() {
+            return event("message_start", """
+                    {"type": "message_start", "message": {"id": "msg_01", "type": "message", "role": "assistant",
+                     "model": "claude-opus-5-5", "content": [], "stop_reason": null, "stop_sequence": null,
+                     "usage": {"input_tokens": 10, "output_tokens": 1}}}""");
+        }
+
+        private static String messageEnd(String stopReason) {
+            return event("message_delta", """
+                    {"type": "message_delta", "delta": {"stop_reason": "%s", "stop_sequence": null},
+                     "usage": {"input_tokens": 10, "output_tokens": 5}}""".formatted(stopReason))
+                    + event("message_stop", """
+                            {"type": "message_stop"}""");
+        }
+
+        /** One Server-Sent Event. Its data must be a single line, so the JSON is joined up. */
+        private static String event(String type, String json) {
+            return "event: " + type + "\ndata: " + json.replace('\n', ' ') + "\n\n";
         }
     }
 }

@@ -57,9 +57,12 @@ public class SecurityConfig {
                     // matched by anyRequest().authenticated() and answered with 401 -
                     // replacing the real 400, 404 or 409 the caller should have seen.
                     // Permitting the ERROR and FORWARD dispatches lets the genuine status
-                    // through. This is not a hole: the original request was already
-                    // authorised, and this dispatch only renders the error it produced.
-                    .dispatcherTypeMatchers(DispatcherType.ERROR, DispatcherType.FORWARD).permitAll()
+                    // through. ASYNC is the same idea for a streamed reply: when the stream
+                    // ends, the container dispatches the request once more to finish it,
+                    // and that second pass carries no token. None of these is a hole: the
+                    // original request was already authorised, and the later dispatch only
+                    // finishes what it started.
+                    .dispatcherTypeMatchers(DispatcherType.ERROR, DispatcherType.FORWARD, DispatcherType.ASYNC).permitAll()
 
                     // Reachable without a token, because you cannot get one otherwise.
                     .requestMatchers("/api/auth/register", "/api/auth/login").permitAll()

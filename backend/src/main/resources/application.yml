@@ -13,6 +13,10 @@ spring:
     # already produce, so every error from this API looks alike.
     problemdetails:
       enabled: true
+    # How long a streamed assistant reply may stay open. Tomcat's own default is 30
+    # seconds, and a reply that looks something up before answering can take longer.
+    async:
+      request-timeout: 3m
 
   # Every request runs on a Java 21 virtual thread rather than one of Tomcat's 200 pooled
   # threads. A request that is waiting - on the database, or for half a minute on the
