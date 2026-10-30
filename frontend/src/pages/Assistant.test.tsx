@@ -89,7 +89,14 @@ describe("Assistant", () => {
 
   it("searches job descriptions by meaning and shows each match's drive", async () => {
     vi.mocked(jobDescriptionsApi.searchJobDescriptions).mockResolvedValue([
-      { driveId: 10, companyName: "Razorpay", role: "Backend Engineer", excerpt: "Strong SQL skills.", score: 0.62 },
+      {
+        driveId: 10,
+        companyName: "Razorpay",
+        role: "Backend Engineer",
+        excerpt: "Strong SQL skills.",
+        score: 0.62,
+        matchedBy: "MEANING",
+      },
     ]);
     renderPage(<Assistant />);
 
@@ -99,6 +106,23 @@ describe("Assistant", () => {
     expect(await screen.findByText("Razorpay")).toBeInTheDocument();
     expect(screen.getByText("62% match")).toBeInTheDocument();
     expect(jobDescriptionsApi.searchJobDescriptions).toHaveBeenCalledWith("backend work with databases");
+  });
+
+  it("says whether each match was found by meaning, by its words, or both", async () => {
+    vi.mocked(jobDescriptionsApi.searchJobDescriptions).mockResolvedValue([
+      { driveId: 10, companyName: "Razorpay", role: "SDE", excerpt: "SQL tuning.", score: 0.71, matchedBy: "BOTH" },
+      { driveId: 11, companyName: "Zoho", role: "SDE", excerpt: "Databases.", score: 0.55, matchedBy: "MEANING" },
+      { driveId: 12, companyName: "Infosys", role: "Analyst", excerpt: "SQL reports.", score: 0, matchedBy: "KEYWORDS" },
+    ]);
+    renderPage(<Assistant />);
+
+    await userEvent.type(screen.getByLabelText("Search job descriptions"), "SQL{Enter}");
+
+    expect(await screen.findByText("71% match + words")).toBeInTheDocument();
+    expect(screen.getByText("55% match")).toBeInTheDocument();
+    // Found by its words alone, it has no closeness in meaning to show - never "0% match".
+    expect(screen.getByText("Word match")).toBeInTheDocument();
+    expect(screen.queryByText("0% match")).not.toBeInTheDocument();
   });
 
   it("sends the admin back to the board", async () => {

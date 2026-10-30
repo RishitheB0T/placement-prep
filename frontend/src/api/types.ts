@@ -200,14 +200,22 @@ export interface ChatChunk {
   text: string;
 }
 
-/** One passage of an uploaded job-description PDF that matched a search, best first. */
+/**
+ * One passage of an uploaded job-description PDF that matched a search. Results arrive
+ * best first, ranked by the search by meaning and the search by words together.
+ */
 export interface JobDescriptionMatch {
   driveId: number;
   companyName: string;
   role: string;
   excerpt: string;
-  /** How close in meaning the passage is to the search: 0 unrelated, 1 the same meaning. */
+  /**
+   * How close in meaning the passage is to the search: 0 unrelated, 1 the same meaning.
+   * 0 when only the words matched.
+   */
   score: number;
+  /** Which half of the search found it: by meaning, by its words, or both. */
+  matchedBy: "MEANING" | "KEYWORDS" | "BOTH";
 }
 
 /** Returned after a job-description PDF is uploaded. */

@@ -25,7 +25,8 @@ const SUGGESTIONS = [
  * applying, searching job descriptions - as tools. The reply is shown while it is being
  * written, the way it streams in from the model. The search panel calls the
  * job-description search directly: it finds passages by meaning, using a model that runs
- * inside the backend, so it works even when no AI key is configured for the chat.
+ * inside the backend, and by their exact words - so it works even when no AI key is
+ * configured for the chat.
  */
 export default function Assistant() {
   const navigate = useNavigate();
@@ -232,7 +233,7 @@ export default function Assistant() {
               </span>
               <div>
                 <h2 className="font-bold text-slate-900">Search job descriptions</h2>
-                <p className="text-xs text-slate-500">Finds matches by meaning, not exact words</p>
+                <p className="text-xs text-slate-500">Finds matches by meaning and by your exact words</p>
               </div>
             </div>
 
@@ -276,7 +277,7 @@ export default function Assistant() {
                         <p className="truncate text-sm font-bold text-slate-900">{match.companyName}</p>
                         <p className="truncate text-xs text-slate-500">{match.role}</p>
                       </div>
-                      <span className="chip bg-emerald-100 text-emerald-700">{Math.round(match.score * 100)}% match</span>
+                      <MatchChip match={match} />
                     </div>
                     <p className="mt-3 line-clamp-4 text-sm leading-relaxed text-slate-600">{match.excerpt}</p>
                   </li>
@@ -307,5 +308,21 @@ function AssistantBubble({ text, writing = false }: { text: string; writing?: bo
         )}
       </p>
     </div>
+  );
+}
+
+/**
+ * How well a search result matched. A passage found by meaning shows how close it is; one
+ * found only by its words has no closeness to show, so it says so instead.
+ */
+function MatchChip({ match }: { match: JobDescriptionMatch }) {
+  const closeness = `${Math.round(match.score * 100)}% match`;
+  if (match.matchedBy === "KEYWORDS") {
+    return <span className="chip shrink-0 bg-sky-100 text-sky-700">Word match</span>;
+  }
+  return (
+    <span className="chip shrink-0 bg-emerald-100 text-emerald-700">
+      {match.matchedBy === "BOTH" ? `${closeness} + words` : closeness}
+    </span>
   );
 }
