@@ -26,7 +26,6 @@ import com.rishikesh.placementprep.modules.auth.service.UserService;
 
 import jakarta.validation.Valid;
 import reactor.core.publisher.Flux;
-import reactor.core.publisher.Mono;
 
 /**
  * Talking to the placement assistant. Students and recruiters only - SecurityConfig
@@ -54,7 +53,7 @@ public class AgentController {
         UserProfileDTO student = requireAssistantFor(principal);
 
         try {
-            return new ChatResponse(agentService.chat(student, request.message(), historyOf(request)));
+            return agentService.chat(student, request.message(), historyOf(request));
         } catch (RuntimeException e) {
             // 502: the model provider failed, not this server or the request. The real
             // cause goes to the log; the student gets something they can act on.
@@ -66,8 +65,9 @@ public class AgentController {
     /**
      * The same conversation as POST /chat, but the reply is sent piece by piece while the
      * model writes it, as Server-Sent Events: a "token" event for each piece of text, then
-     * one "done" event carrying the whole reply. A student sees the answer start within a
-     * second or two rather than staring at a spinner until the last word is written.
+     * one "done" event carrying the whole reply and the tools it used - the same body
+     * POST /chat answers with. A student sees the answer start within a second or two
+     * rather than staring at a spinner until the last word is written.
      *
      * <p>Each event's data is JSON, even for a piece of plain text. Spring writes "data:"
      * with no space after it, and the SSE format drops one leading space from the data, so
@@ -96,12 +96,17 @@ public class AgentController {
     private Flux<ServerSentEvent<?>> replyEvents(UserProfileDTO student, String message, List<ChatRequest.Turn> history) {
         StringBuilder reply = new StringBuilder();
         return Flux.defer(() -> agentService.stream(student, message, history))
-                .<ServerSentEvent<?>>map(text -> {
-                    reply.append(text);
-                    return ServerSentEvent.builder(new ChatChunk(text)).event("token").build();
+                // A switch over a sealed type: the compiler knows Text and Done are the only
+                // kinds of part, so it needs no default branch - and would refuse to compile
+                // if a new kind were added without being handled here.
+                .<ServerSentEvent<?>>map(part -> switch (part) {
+                    case AgentService.Text text -> {
+                        reply.append(text.text());
+                        yield ServerSentEvent.builder(new ChatChunk(text.text())).event("token").build();
+                    }
+                    case AgentService.Done done -> ServerSentEvent
+                            .builder(new ChatResponse(reply.toString(), done.toolsUsed())).event("done").build();
                 })
-                .concatWith(Mono.fromSupplier(() ->
-                        ServerSentEvent.builder(new ChatResponse(reply.toString())).event("done").build()))
                 .onErrorResume(e -> {
                     log.warn("Streamed assistant request failed", e);
                     ProblemDetail problem = ProblemDetail.forStatusAndDetail(HttpStatus.BAD_GATEWAY, PROVIDER_FAILED);

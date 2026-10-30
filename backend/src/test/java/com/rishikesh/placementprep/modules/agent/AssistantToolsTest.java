@@ -6,8 +6,11 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
+import java.lang.reflect.InvocationTargetException;
+import java.lang.reflect.Method;
 import java.math.BigDecimal;
 import java.time.Instant;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Optional;
 
@@ -15,6 +18,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.ai.tool.annotation.Tool;
 
 import com.rishikesh.placementprep.modules.agent.service.AssistantTools;
 import com.rishikesh.placementprep.modules.application.dto.ApplicationDTO;
@@ -110,6 +114,47 @@ class AssistantToolsTest {
         assertThatThrownBy(() -> toolsFor(student(new BigDecimal("8.5"), "CSE")).searchJobDescriptions("databases"))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("switched off");
+    }
+
+    /**
+     * Every tool notes its own name. Checked over every @Tool method found by reflection,
+     * so a tool added later without the note, or with its name mistyped, fails here. The
+     * note comes first, so even a call that then fails still counts as used.
+     */
+    @Test
+    void everyToolNotesItsOwnNameWhenCalled() throws IllegalAccessException {
+        UserProfileDTO student = student(new BigDecimal("8.5"), "CSE");
+        int toolsChecked = 0;
+
+        for (Method method : AssistantTools.class.getMethods()) {
+            if (!method.isAnnotationPresent(Tool.class)) {
+                continue;
+            }
+            AssistantTools tools = toolsFor(student);
+            Object[] arguments = Arrays.stream(method.getParameterTypes())
+                    .map(type -> type == String.class ? "databases" : null)
+                    .toArray();
+            try {
+                method.invoke(tools, arguments);
+            } catch (InvocationTargetException failedAfterwards) {
+                // Expected for some: the mocks hold no data. The name is noted all the same.
+            }
+            assertThat(tools.toolsUsed()).as(method.getName()).containsExactly(method.getName());
+            toolsChecked++;
+        }
+
+        assertThat(toolsChecked).isEqualTo(5);
+    }
+
+    @Test
+    void toolsUsedListsEachToolOnceInTheOrderFirstCalled() {
+        AssistantTools tools = toolsFor(student(new BigDecimal("8.5"), "CSE"));
+
+        tools.allDrives();
+        tools.myApplications();
+        tools.allDrives();
+
+        assertThat(tools.toolsUsed()).containsExactly("allDrives", "myApplications");
     }
 
     private AssistantTools toolsFor(UserProfileDTO student) {

@@ -1,6 +1,7 @@
 package com.rishikesh.placementprep.modules.agent;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.hamcrest.Matchers.contains;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.asyncDispatch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
@@ -131,7 +132,8 @@ class AgentApiTest {
 
         mockMvc.perform(chat("Which drives can I apply to?"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.reply").value("You can apply to Zoho."));
+                .andExpect(jsonPath("$.reply").value("You can apply to Zoho."))
+                .andExpect(jsonPath("$.toolsUsed").value(contains("eligibleDrives")));
 
         assertThat(FAKE.requests()).hasSize(2);
         // The first request told the model which tools exist...
@@ -168,7 +170,9 @@ class AgentApiTest {
                                    {"text": "Zoho is hiring Member Technical Staff.", "fromAssistant": true}
                                  ]}
                                 """))
-                .andExpect(status().isOk());
+                .andExpect(status().isOk())
+                // Answered straight from the conversation, without looking anything up.
+                .andExpect(jsonPath("$.toolsUsed").isEmpty());
 
         assertThat(FAKE.requests().getFirst()).contains("Tell me about Zoho", "Zoho is hiring", "And the deadline?");
     }
@@ -216,7 +220,7 @@ class AgentApiTest {
                 "event:token", "data:{\"text\":\"You can \"}",
                 "event:token", "data:{\"text\":\"apply to \"}",
                 "event:token", "data:{\"text\":\"Zoho.\"}",
-                "event:done", "data:{\"reply\":\"You can apply to Zoho.\"}");
+                "event:done", "data:{\"reply\":\"You can apply to Zoho.\",\"toolsUsed\":[]}");
         assertThat(FAKE.requests().getFirst()).contains("\"stream\":true");
     }
 
@@ -228,7 +232,7 @@ class AgentApiTest {
 
         String events = eventsOf(startStream("Please apply me to the Zoho drive"));
 
-        assertThat(events).contains("event:done", "Done - you have applied to Zoho.");
+        assertThat(events).contains("event:done", "Done - you have applied to Zoho.", "\"toolsUsed\":[\"applyToDrive\"]");
         assertThat(applicationRepository.findByStudentIdAndDriveId(studentId, driveId)).isPresent();
         assertThat(FAKE.requests()).hasSize(2);
         assertThat(FAKE.requests().get(1)).contains("tool_result", "Applied to Zoho");

@@ -3,6 +3,7 @@ package com.rishikesh.placementprep.modules.agent.service;
 import java.math.BigDecimal;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
@@ -32,6 +33,9 @@ import com.rishikesh.placementprep.modules.knowledgebase.service.JobDescriptionS
  *
  * <p>Not a Spring bean for that reason: it is built per request in AgentService, from the
  * same services the controllers use, so every rule those services enforce still applies.
+ *
+ * <p>Each tool notes its own name the moment it is called, so the reply can say which ones
+ * it used - shown under the answer, and what the assistant's evaluation checks.
  */
 public class AssistantTools {
 
@@ -39,6 +43,13 @@ public class AssistantTools {
     private final DriveService driveService;
     private final ApplicationService applicationService;
     private final JobDescriptionService jobDescriptionService;
+
+    /**
+     * The tools called so far, each once, in the order first called. A thread-safe list,
+     * because while a reply streams a tool runs on one thread and the finished reply is
+     * read on another.
+     */
+    private final CopyOnWriteArrayList<String> toolsUsed = new CopyOnWriteArrayList<>();
 
     public AssistantTools(UserProfileDTO student,
                           DriveService driveService,
@@ -50,9 +61,20 @@ public class AssistantTools {
         this.jobDescriptionService = jobDescriptionService;
     }
 
+    /** The names of the tools called while answering, each once, in the order first called. */
+    public List<String> toolsUsed() {
+        return List.copyOf(toolsUsed);
+    }
+
+    /** Noted before the tool does anything, so a tool that then fails still counts as used. */
+    private void used(String tool) {
+        toolsUsed.addIfAbsent(tool);
+    }
+
     @Tool(description = "List the open placement drives this student is eligible for, judged against their "
             + "CGPA, branch, 10th and 12th percentages and backlogs. Soonest deadline first.")
     public List<DriveSummary> eligibleDrives() {
+        used("eligibleDrives");
         // Thrown rather than returned empty: Spring AI hands an exception's message back to
         // the model, which can then tell the student what to do instead of "no drives".
         if (!student.isComplete()) {
@@ -68,12 +90,14 @@ public class AssistantTools {
     @Tool(description = "List every drive on the placement board, including ones this student is not eligible "
             + "for and ones whose deadline has passed. Newest first.")
     public List<DriveSummary> allDrives() {
+        used("allDrives");
         return driveService.findAllDrives().stream().map(DriveSummary::of).toList();
     }
 
     @Tool(description = "List this student's own applications, with the company, role and current status of each "
             + "(APPLIED, SHORTLISTED, REJECTED, SELECTED or WITHDRAWN) and any note from the placement cell.")
     public List<ApplicationSummary> myApplications() {
+        used("myApplications");
         Map<Long, DriveDTO> drives = driveService.findAllDrives().stream()
                 .collect(Collectors.toMap(DriveDTO::id, Function.identity()));
 
@@ -85,6 +109,7 @@ public class AssistantTools {
     @Tool(description = "Apply this student to one placement drive. Only call this when the student has clearly "
             + "asked to apply to that specific drive - never on your own initiative.")
     public String applyToDrive(@ToolParam(description = "The id of the drive to apply to") Long driveId) {
+        used("applyToDrive");
         // Apply through the same service the Apply button uses, so every rule - the drive
         // exists, not already applied, still open, profile complete, eligible - is the same
         // one. A refusal is returned as text rather than thrown, so the model can tell the
@@ -106,6 +131,7 @@ public class AssistantTools {
             + "keywords or both.")
     public List<JobDescriptionMatch> searchJobDescriptions(
             @ToolParam(description = "What to look for, in plain words") String query) {
+        used("searchJobDescriptions");
         // Thrown, like eligibleDrives does: Spring AI hands the message back to the model,
         // which can then tell the student search is unavailable instead of "no matches".
         if (!jobDescriptionService.isEnabled()) {

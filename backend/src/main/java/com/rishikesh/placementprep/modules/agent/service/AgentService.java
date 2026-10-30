@@ -12,12 +12,14 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 import com.rishikesh.placementprep.modules.agent.dto.ChatRequest;
+import com.rishikesh.placementprep.modules.agent.dto.ChatResponse;
 import com.rishikesh.placementprep.modules.application.service.ApplicationService;
 import com.rishikesh.placementprep.modules.auth.dto.UserProfileDTO;
 import com.rishikesh.placementprep.modules.drive.service.DriveService;
 import com.rishikesh.placementprep.modules.knowledgebase.service.JobDescriptionService;
 
 import reactor.core.publisher.Flux;
+import reactor.core.publisher.Mono;
 
 /**
  * The placement assistant: answers a student's plain-English messages, calling backend
@@ -64,8 +66,11 @@ public class AgentService {
         return apiKey != null && !apiKey.isBlank();
     }
 
-    public String chat(UserProfileDTO student, String message, List<ChatRequest.Turn> history) {
-        return prompt(student, message, history).call().content();
+    /** The whole reply, once the model has finished it, with the tools it used. */
+    public ChatResponse chat(UserProfileDTO student, String message, List<ChatRequest.Turn> history) {
+        AssistantTools tools = toolsFor(student);
+        String reply = prompt(message, history, tools).call().content();
+        return new ChatResponse(reply, tools.toolsUsed());
     }
 
     /**
@@ -74,17 +79,37 @@ public class AgentService {
      * through: Spring AI pauses the stream, runs the tool, sends the result back to the
      * model and carries on streaming its answer.
      *
+     * <p>The parts are {@link Text} pieces, then one {@link Done} naming the tools used -
+     * read only after the last piece, so every tool the reply needed is in it.
+     *
      * <p>Nothing is sent to the model until the returned Flux is subscribed to.
      */
-    public Flux<String> stream(UserProfileDTO student, String message, List<ChatRequest.Turn> history) {
-        return prompt(student, message, history).stream().content()
+    public Flux<ReplyPart> stream(UserProfileDTO student, String message, List<ChatRequest.Turn> history) {
+        AssistantTools tools = toolsFor(student);
+        return prompt(message, history, tools).stream().content()
                 // Some stream events (the start of a message, a tool call) carry no text.
-                .filter(text -> !text.isEmpty());
+                .filter(text -> !text.isEmpty())
+                .<ReplyPart>map(Text::new)
+                .concatWith(Mono.fromSupplier(() -> new Done(tools.toolsUsed())));
+    }
+
+    /** One part of a streamed reply. Sealed: a Text or a Done, and nothing else. */
+    public sealed interface ReplyPart permits Text, Done {}
+
+    /** A piece of the reply, as the model wrote it. */
+    public record Text(String text) implements ReplyPart {}
+
+    /** The reply is finished; these are the tools it used. */
+    public record Done(List<String> toolsUsed) implements ReplyPart {}
+
+    /** A fresh set of tools bound to this one student, which also notes what gets called. */
+    private AssistantTools toolsFor(UserProfileDTO student) {
+        return new AssistantTools(student, driveService, applicationService, jobDescriptionService);
     }
 
     /** The request both {@link #chat} and {@link #stream} send, before it is sent. */
-    private ChatClient.ChatClientRequestSpec prompt(UserProfileDTO student, String message,
-                                                    List<ChatRequest.Turn> history) {
+    private ChatClient.ChatClientRequestSpec prompt(String message, List<ChatRequest.Turn> history,
+                                                    AssistantTools tools) {
         // 1. The conversation so far, then the new message. Built as message objects rather
         //    than passed through .user(text): plain text there can be read as a template,
         //    and a student typing "{" would then break the request.
@@ -94,10 +119,8 @@ public class AgentService {
         }
         messages.add(new UserMessage(message));
 
-        // 2. Tools bound to this one student
-        AssistantTools tools = new AssistantTools(student, driveService, applicationService, jobDescriptionService);
-
-        // 3. What to ask. Today's date lets the model reason about deadlines.
+        // 2. What to ask, with tools bound to this one student. Today's date lets the model
+        //    reason about deadlines.
         return chatClient.prompt()
                 .system(SYSTEM_PROMPT + "\nToday's date is " + LocalDate.now() + ".")
                 .messages(messages)
