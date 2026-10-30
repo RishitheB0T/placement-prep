@@ -136,6 +136,15 @@ async function errorMessage(status: number, data: unknown): Promise<string> {
     }
   }
 
+  // The same for a streamed request (postForEvents): its error arrives as a stream.
+  if (body instanceof ReadableStream) {
+    try {
+      body = JSON.parse(await new Response(body).text());
+    } catch {
+      body = null;
+    }
+  }
+
   if (body !== null && typeof body === "object") {
     const problem = body as ProblemDetail;
     // A rejected form says which fields were wrong and why; that beats the generic
@@ -161,6 +170,77 @@ async function request<T>(config: AxiosRequestConfig): Promise<T> {
   return response.status === 204 ? (undefined as T) : response.data;
 }
 
+/** One Server-Sent Event: its name ("token", "done", ...) and its data. */
+export interface ServerSentEvent {
+  event: string;
+  data: string;
+}
+
+/**
+ * Performs a POST whose answer is a text/event-stream, and yields each event as soon as it
+ * has fully arrived. A failure before the stream begins (401, 503, ...) is an ApiError,
+ * shaped by the same interceptor as every other request.
+ */
+async function* streamEvents(path: string, body: unknown): AsyncGenerator<ServerSentEvent> {
+  const response = await http.request<ReadableStream<Uint8Array>>({
+    method: "POST",
+    url: path,
+    data: body,
+    responseType: "stream",
+  });
+  yield* readEvents(response.data);
+}
+
+/**
+ * Splits a text/event-stream body into events.
+ *
+ * The network hands the body over in chunks that need not line up with events - a chunk
+ * can end half-way through a line - so text is buffered until a blank line, which is what
+ * ends an event in this format. If the caller stops early (it has the answer it wanted,
+ * or the page went away), the finally block cancels the stream, which closes the
+ * connection rather than leaving it open in the background.
+ */
+async function* readEvents(body: ReadableStream<Uint8Array>): AsyncGenerator<ServerSentEvent> {
+  const reader = body.getReader();
+  const decoder = new TextDecoder();
+  let buffered = "";
+  try {
+    for (;;) {
+      const { value, done } = await reader.read();
+      if (done) return;
+      // stream: true holds back the end of a character split across two chunks.
+      buffered += decoder.decode(value, { stream: true });
+
+      let end = buffered.indexOf("\n\n");
+      while (end !== -1) {
+        const event = parseEvent(buffered.slice(0, end));
+        buffered = buffered.slice(end + 2);
+        if (event) yield event;
+        end = buffered.indexOf("\n\n");
+      }
+    }
+  } finally {
+    await reader.cancel();
+  }
+}
+
+/** Reads one event's lines - "event:token", "data:{...}" - into its name and data. */
+function parseEvent(block: string): ServerSentEvent | null {
+  let event = "message";
+  const data: string[] = [];
+  for (const line of block.split("\n")) {
+    const colon = line.indexOf(":");
+    const field = colon === -1 ? line : line.slice(0, colon);
+    let value = colon === -1 ? "" : line.slice(colon + 1);
+    // The format allows one space after the colon, which is not part of the value.
+    if (value.startsWith(" ")) value = value.slice(1);
+
+    if (field === "event") event = value;
+    else if (field === "data") data.push(value);
+  }
+  return data.length === 0 ? null : { event, data: data.join("\n") };
+}
+
 export const api = {
   get: <T>(path: string) => request<T>({ method: "GET", url: path }),
   // body is optional: a POST that only performs an action (withdrawing an application,
@@ -177,4 +257,10 @@ export const api = {
    * could not: a link cannot carry an Authorization header.
    */
   getBlob: (path: string) => request<Blob>({ method: "GET", url: path, responseType: "blob" }),
+  /**
+   * A POST answered with a stream of Server-Sent Events, read one event at a time with
+   * for await - see streamAssistant. The browser's own EventSource cannot do this: it only
+   * sends GET requests, and cannot carry an Authorization header.
+   */
+  postForEvents: (path: string, body: unknown) => streamEvents(path, body),
 };

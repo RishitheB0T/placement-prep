@@ -195,6 +195,11 @@ export interface ChatResponse {
   reply: string;
 }
 
+/** One piece of a reply that is still being written. */
+export interface ChatChunk {
+  text: string;
+}
+
 /** One passage of an uploaded job-description PDF that matched a search, best first. */
 export interface JobDescriptionMatch {
   driveId: number;

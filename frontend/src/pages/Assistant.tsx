@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from "react";
 import { useNavigate } from "react-router-dom";
 
-import { askAssistant } from "../api/agent";
+import { streamAssistant } from "../api/agent";
 import { fetchMyProfile } from "../api/auth";
 import { isStudentRole } from "../api/roles";
 import { ApiError } from "../api/client";
@@ -22,7 +22,8 @@ const SUGGESTIONS = [
  *
  * The chat sends each message, with the conversation so far, to the backend assistant,
  * which answers by calling real backend methods - eligible drives, my applications,
- * applying, searching job descriptions - as tools. The search panel calls the
+ * applying, searching job descriptions - as tools. The reply is shown while it is being
+ * written, the way it streams in from the model. The search panel calls the
  * job-description search directly: it finds passages by meaning, using a model that runs
  * inside the backend, so it works even when no AI key is configured for the chat.
  */
@@ -34,6 +35,8 @@ export default function Assistant() {
   const [turns, setTurns] = useState<ChatTurn[]>([]);
   const [draft, setDraft] = useState("");
   const [thinking, setThinking] = useState(false);
+  // The reply written so far while it streams in; null when no reply is arriving.
+  const [partial, setPartial] = useState<string | null>(null);
   const [chatError, setChatError] = useState<string | null>(null);
   const endOfChat = useRef<HTMLDivElement>(null);
 
@@ -67,7 +70,7 @@ export default function Assistant() {
   // Keep the newest message in view as the conversation grows.
   useEffect(() => {
     endOfChat.current?.scrollIntoView?.({ behavior: "smooth", block: "end" });
-  }, [turns, thinking]);
+  }, [turns, thinking, partial]);
 
   async function send(text: string) {
     const message = text.trim();
@@ -81,7 +84,9 @@ export default function Assistant() {
     setThinking(true);
 
     try {
-      const { reply } = await askAssistant(message, history);
+      const { reply } = await streamAssistant(message, history, (piece) =>
+        setPartial((sofar) => (sofar ?? "") + piece),
+      );
       setTurns((current) => [...current, { text: reply, fromAssistant: true }]);
     } catch (e) {
       if (e instanceof ApiError && e.status === 401) {
@@ -90,6 +95,8 @@ export default function Assistant() {
       }
       setChatError(e instanceof ApiError ? e.message : "Could not reach the server");
     } finally {
+      // A reply cut off by an error is dropped rather than kept half-written.
+      setPartial(null);
       setThinking(false);
     }
   }
@@ -146,7 +153,7 @@ export default function Assistant() {
               </div>
             </div>
 
-            <div className="flex-1 space-y-4 overflow-y-auto px-6 py-5" aria-live="polite">
+            <div className="flex-1 space-y-4 overflow-y-auto px-6 py-5" aria-live="polite" aria-busy={thinking}>
               {turns.length === 0 && (
                 <div className="py-6 text-center">
                   <p className="text-sm font-semibold text-slate-700">Try asking</p>
@@ -167,14 +174,7 @@ export default function Assistant() {
 
               {turns.map((turn, index) =>
                 turn.fromAssistant ? (
-                  <div key={index} className="animate-pop flex items-start gap-3">
-                    <span className="grid size-8 shrink-0 place-items-center rounded-xl bg-linear-to-br from-violet-500 to-fuchsia-500 text-white">
-                      <Icon name="sparkles" className="size-4" />
-                    </span>
-                    <p className="max-w-[85%] rounded-2xl rounded-tl-sm bg-slate-50 px-4 py-3 text-sm leading-relaxed whitespace-pre-wrap text-slate-800 ring-1 ring-slate-100">
-                      {turn.text}
-                    </p>
-                  </div>
+                  <AssistantBubble key={index} text={turn.text} />
                 ) : (
                   <div key={index} className="animate-pop flex justify-end">
                     <p className="max-w-[85%] rounded-2xl rounded-tr-sm bg-linear-to-r from-indigo-600 to-fuchsia-500 px-4 py-3 text-sm leading-relaxed whitespace-pre-wrap text-white shadow-md shadow-indigo-500/20">
@@ -184,7 +184,9 @@ export default function Assistant() {
                 ),
               )}
 
-              {thinking && (
+              {partial !== null && <AssistantBubble text={partial} writing />}
+
+              {thinking && partial === null && (
                 <div className="flex items-center gap-3 text-sm text-slate-500">
                   <span className="grid size-8 place-items-center rounded-xl bg-violet-100 text-violet-600">
                     <Spinner className="size-4" />
@@ -285,5 +287,25 @@ export default function Assistant() {
         </div>
       </main>
     </>
+  );
+}
+
+/**
+ * One of the assistant's messages. While it is still being written, a blinking bar after
+ * the text shows that more is coming.
+ */
+function AssistantBubble({ text, writing = false }: { text: string; writing?: boolean }) {
+  return (
+    <div className="animate-pop flex items-start gap-3">
+      <span className="grid size-8 shrink-0 place-items-center rounded-xl bg-linear-to-br from-violet-500 to-fuchsia-500 text-white">
+        <Icon name="sparkles" className="size-4" />
+      </span>
+      <p className="max-w-[85%] rounded-2xl rounded-tl-sm bg-slate-50 px-4 py-3 text-sm leading-relaxed whitespace-pre-wrap text-slate-800 ring-1 ring-slate-100">
+        {text}
+        {writing && (
+          <span aria-hidden="true" className="ml-0.5 inline-block h-4 w-1.5 animate-pulse rounded-sm bg-violet-400 align-text-bottom" />
+        )}
+      </p>
+    </div>
   );
 }

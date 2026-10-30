@@ -22,6 +22,18 @@ describe("api client", () => {
   const jsonResponse = (body: unknown, status = 200) =>
     new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
 
+  /** A text/event-stream response whose body arrives in exactly these chunks. */
+  const eventStream = (chunks: string[]) => {
+    const encoder = new TextEncoder();
+    const body = new ReadableStream<Uint8Array>({
+      start(controller) {
+        chunks.forEach((chunk) => controller.enqueue(encoder.encode(chunk)));
+        controller.close();
+      },
+    });
+    return new Response(body, { status: 200, headers: { "Content-Type": "text/event-stream" } });
+  };
+
   // Axios's fetch adapter builds a Request object and hands that to fetch, so what each
   // call sent - method, headers, body - is read off the Request.
   const requestOf = (call: number) => fetchMock.mock.calls[call][0] as Request;
@@ -151,6 +163,39 @@ describe("api client", () => {
     fetchMock.mockResolvedValue(new Response(null, { status: 204 }));
 
     await expect(api.delete("/api/drives/1")).resolves.toBeUndefined();
+  });
+
+  it("reads a stream of events as they arrive, even when chunks split them mid-line", async () => {
+    setToken("a.b.c");
+    // Three chunks that cut across event and line boundaries, the way a network may.
+    fetchMock.mockResolvedValue(
+      eventStream(['event:token\ndata:{"te', 'xt":"Hi "}\n\nevent:tok', 'en\ndata:{"text":"there"}\n\n']),
+    );
+
+    const events = [];
+    for await (const event of api.postForEvents("/api/agent/chat/stream", { message: "Hello" })) {
+      events.push(event);
+    }
+
+    expect(events).toEqual([
+      { event: "token", data: '{"text":"Hi "}' },
+      { event: "token", data: '{"text":"there"}' },
+    ]);
+    expect(requestOf(0).method).toBe("POST");
+    expect(headersOf(0).get("Authorization")).toBe("Bearer a.b.c");
+  });
+
+  it("turns a stream request refused before it began into the usual ApiError", async () => {
+    fetchMock.mockResolvedValue(
+      jsonResponse({ title: "Service Unavailable", detail: "The AI assistant is not switched on for this server yet." }, 503),
+    );
+
+    const firstEvent = api.postForEvents("/api/agent/chat/stream", { message: "Hello" }).next();
+
+    await expect(firstEvent).rejects.toMatchObject({
+      status: 503,
+      message: "The AI assistant is not switched on for this server yet.",
+    });
   });
 
   it("round-trips the token through storage", () => {
