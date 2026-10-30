@@ -7,6 +7,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ProblemDetail;
+import org.springframework.http.ResponseEntity;
 import org.springframework.http.codec.ServerSentEvent;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.core.userdetails.UserDetails;
@@ -77,14 +78,24 @@ public class AgentController {
      * same problem-detail shape every other error in this API has.
      */
     @PostMapping(path = "/chat/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
-    public Flux<ServerSentEvent<?>> chatStream(@AuthenticationPrincipal UserDetails principal,
-                                               @Valid @RequestBody ChatRequest request) {
+    public ResponseEntity<Flux<ServerSentEvent<?>>> chatStream(@AuthenticationPrincipal UserDetails principal,
+                                                               @Valid @RequestBody ChatRequest request) {
         // Checked before anything is streamed, so these still get their real 503 or 404.
         UserProfileDTO student = requireAssistantFor(principal);
         List<ChatRequest.Turn> history = historyOf(request);
 
+        return ResponseEntity.ok()
+                // nginx, in front of this API in Docker and on Render, holds a proxied
+                // response back until its buffer fills - which for a short reply means
+                // until the very end. This header asks it to pass each event straight on.
+                .header("X-Accel-Buffering", "no")
+                .body(replyEvents(student, request.message(), history));
+    }
+
+    /** The token, done and error events for one streamed reply, as described above. */
+    private Flux<ServerSentEvent<?>> replyEvents(UserProfileDTO student, String message, List<ChatRequest.Turn> history) {
         StringBuilder reply = new StringBuilder();
-        return Flux.defer(() -> agentService.stream(student, request.message(), history))
+        return Flux.defer(() -> agentService.stream(student, message, history))
                 .<ServerSentEvent<?>>map(text -> {
                     reply.append(text);
                     return ServerSentEvent.builder(new ChatChunk(text)).event("token").build();
