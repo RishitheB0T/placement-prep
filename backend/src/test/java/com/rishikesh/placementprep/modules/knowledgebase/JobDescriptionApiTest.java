@@ -39,6 +39,8 @@ import com.rishikesh.placementprep.modules.auth.repository.UserRepository;
 import com.rishikesh.placementprep.modules.auth.service.JwtService;
 import com.rishikesh.placementprep.modules.drive.model.Drive;
 import com.rishikesh.placementprep.modules.drive.repository.DriveRepository;
+import com.rishikesh.placementprep.modules.knowledgebase.repository.JobDescriptionChunkRepository;
+import com.rishikesh.placementprep.modules.knowledgebase.repository.JobDescriptionChunkRepository.StoredPassage;
 import com.rishikesh.placementprep.modules.knowledgebase.service.JobDescriptionService;
 
 /**
@@ -73,6 +75,9 @@ class JobDescriptionApiTest {
 
     @Autowired
     private JobDescriptionService jobDescriptionService;
+
+    @Autowired
+    private JobDescriptionChunkRepository chunkRepository;
 
     private String adminToken;
     private String studentToken;
@@ -130,6 +135,22 @@ class JobDescriptionApiTest {
                 .allSatisfy(text -> assertThat(text).doesNotContain("Figma"))
                 .anySatisfy(text -> assertThat(text).contains("Spring Boot"));
         assertThat(jobDescriptionService.passagesFor(999_999L, "required skills", 8)).isEmpty();
+    }
+
+    /** The keyword half of search: PostgreSQL's full-text search over the same passages. */
+    @Test
+    void keywordSearchFindsPassagesByTheirWordsAndOneWordIsEnough() throws Exception {
+        upload(adminToken, backendDriveId, BACKEND_JD).andExpect(status().isCreated());
+        upload(adminToken, designDriveId, DESIGN_JD).andExpect(status().isCreated());
+
+        // "indexes" finds "indexing" - both reduce to the stem "index" - and "Kotlin",
+        // which appears nowhere, does not stop the other word from matching.
+        assertThat(chunkRepository.searchByKeywords("Kotlin indexes", 10))
+                .extracting(StoredPassage::companyName).containsExactly("Razorpay");
+        assertThat(chunkRepository.searchByKeywords("wireframe", 10))
+                .extracting(StoredPassage::driveId).containsExactly(designDriveId);
+        // Nothing but common words leaves no stems to look for: no matches, and no error.
+        assertThat(chunkRepository.searchByKeywords("the and of", 10)).isEmpty();
     }
 
     @Test
