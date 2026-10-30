@@ -100,9 +100,10 @@ public class AssistantTools {
         }
     }
 
-    @Tool(description = "Search the uploaded job-description PDFs by meaning, not exact words - for example "
-            + "'backend role using Java and SQL' or 'what is the selection process'. Returns the most relevant "
-            + "passages, each with the drive it belongs to.")
+    @Tool(description = "Search the uploaded job-description PDFs by meaning and by exact words - for example "
+            + "'backend role using Java and SQL', 'Kubernetes' or 'what is the selection process'. Returns the most "
+            + "relevant passages, each with the drive it belongs to and whether it matched by meaning, by "
+            + "keywords or both.")
     public List<JobDescriptionMatch> searchJobDescriptions(
             @ToolParam(description = "What to look for, in plain words") String query) {
         // Thrown, like eligibleDrives does: Spring AI hands the message back to the model,

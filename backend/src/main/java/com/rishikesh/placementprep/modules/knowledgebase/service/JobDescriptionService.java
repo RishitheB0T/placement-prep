@@ -1,5 +1,7 @@
 package com.rishikesh.placementprep.modules.knowledgebase.service;
 
+import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -14,6 +16,8 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import com.rishikesh.placementprep.modules.knowledgebase.dto.JobDescriptionMatch;
+import com.rishikesh.placementprep.modules.knowledgebase.dto.JobDescriptionMatch.MatchedBy;
+import com.rishikesh.placementprep.modules.knowledgebase.repository.JobDescriptionChunkRepository;
 
 /**
  * Semantic search over job-description PDFs - the retrieval half of RAG
@@ -24,7 +28,8 @@ import com.rishikesh.placementprep.modules.knowledgebase.dto.JobDescriptionMatch
  * then stored in the job_description_chunks table. Searching: the question is embedded
  * the same way, and the passages whose numbers sit closest to it are returned. That is
  * why "backend role with databases" can find a passage that says "Spring Boot and SQL"
- * without sharing a single word with it.
+ * without sharing a single word with it. A search also looks for the query's own words
+ * (JobDescriptionChunkRepository) and merges the two - see {@link #search}.
  *
  * <p>Takes plain values rather than a DriveDTO, so this module does not depend on the
  * drive module and the drive module can call {@link #forgetDrive} without a cycle.
@@ -46,6 +51,17 @@ public class JobDescriptionService {
     /** Below this similarity a passage has too little to do with the question to show. */
     private static final double MIN_SIMILARITY = 0.2;
 
+    /** How many passages each half of a search puts forward before the two are merged. */
+    private static final int CANDIDATES = 20;
+
+    /**
+     * The k of reciprocal rank fusion, in 1 / (k + rank). 60 is the value the method was
+     * published with and the usual default. It flattens the curve: first place in one list
+     * is worth only a little more than fifth, so agreement between the lists counts for
+     * more than either list's own top pick.
+     */
+    private static final int RRF_K = 60;
+
     /**
      * About 200 tokens a passage. The embedding model only reads the first 256 word pieces
      * of any text, so a longer passage would have its end silently ignored, and a shorter
@@ -60,9 +76,11 @@ public class JobDescriptionService {
             .build();
 
     private final Optional<VectorStore> vectorStore;
+    private final JobDescriptionChunkRepository chunkRepository;
 
-    public JobDescriptionService(Optional<VectorStore> vectorStore) {
+    public JobDescriptionService(Optional<VectorStore> vectorStore, JobDescriptionChunkRepository chunkRepository) {
         this.vectorStore = vectorStore;
+        this.chunkRepository = chunkRepository;
     }
 
     /** Whether semantic search is switched on - false where the vector store is left out. */
@@ -108,18 +126,74 @@ public class JobDescriptionService {
         return labelled.size();
     }
 
-    /** The passages closest in meaning to the query, best first. */
+    /**
+     * The passages that best match the query, best first - found two ways, then merged.
+     *
+     * <p>By meaning, the vector search finds passages that say the same thing in other
+     * words: "server-side programming" finds "REST APIs in Java". By words, PostgreSQL's
+     * full-text search finds the exact terms an embedding can blur - a library, an
+     * acronym, a tool's name. Each is good at what the other misses, so this is a hybrid
+     * search: both halves put forward their best candidates in order, and reciprocal rank
+     * fusion merges the two orders into one.
+     */
     public List<JobDescriptionMatch> search(String query, int limit) {
+        // 1. By meaning, as before - only passages at least somewhat close to the query
         SearchRequest request = SearchRequest.builder()
                 .query(query)
-                .topK(limit)
+                .topK(CANDIDATES)
                 .similarityThreshold(MIN_SIMILARITY)
                 .build();
+        List<Ranked> byMeaning = requireVectorStore().similaritySearch(request).stream()
+                .map(passage -> new Ranked(passage.getId(), toMatch(passage)))
+                .toList();
 
-        return requireVectorStore().similaritySearch(request).stream()
-                .map(this::toMatch)
+        // 2. By words, over the same stored passages
+        List<Ranked> byKeywords = chunkRepository.searchByKeywords(query, CANDIDATES).stream()
+                .map(passage -> new Ranked(passage.id(), new JobDescriptionMatch(passage.driveId(),
+                        passage.companyName(), passage.role(), passage.text(), 0, MatchedBy.KEYWORDS)))
+                .toList();
+
+        // 3. One list from the two
+        return fuse(byMeaning, byKeywords, limit);
+    }
+
+    /**
+     * Reciprocal rank fusion: each passage earns 1 / (RRF_K + its rank) from every list it
+     * is in, and the passages are ordered by what they earned in total. A passage both
+     * searches found therefore rises above one that only a single search ranked first.
+     *
+     * <p>Only the ranks are used, never the scores - which is the point. A cosine similarity
+     * and a full-text rank are measured on scales that cannot be compared, so adding them
+     * up would mean nothing; positions in a list can always be compared.
+     *
+     * <p>A passage in both lists is labelled BOTH and keeps its similarity from the search
+     * by meaning. On an exact tie the passage first seen wins, and the meaning list is read
+     * first.
+     */
+    private static List<JobDescriptionMatch> fuse(List<Ranked> byMeaning, List<Ranked> byKeywords, int limit) {
+        Map<String, Double> fusedScores = new LinkedHashMap<>();
+        Map<String, JobDescriptionMatch> matches = new HashMap<>();
+
+        for (List<Ranked> ranking : List.of(byMeaning, byKeywords)) {
+            for (int index = 0; index < ranking.size(); index++) {
+                Ranked found = ranking.get(index);
+                int rank = index + 1;
+                fusedScores.merge(found.passageId(), 1.0 / (RRF_K + rank), Double::sum);
+                matches.merge(found.passageId(), found.match(),
+                        (alreadyFound, foundAgain) -> alreadyFound.withMatchedBy(MatchedBy.BOTH));
+            }
+        }
+
+        // A stable sort, so equal totals stay in the order they were first seen.
+        return fusedScores.entrySet().stream()
+                .sorted(Map.Entry.<String, Double>comparingByValue().reversed())
+                .limit(limit)
+                .map(entry -> matches.get(entry.getKey()))
                 .toList();
     }
+
+    /** A passage as one half of a search found it, before the two halves are merged. */
+    private record Ranked(String passageId, JobDescriptionMatch match) {}
 
     /**
      * The passages of one drive's job description closest in meaning to the query, best
@@ -170,7 +244,8 @@ public class JobDescriptionService {
                 (String) metadata.get("companyName"),
                 (String) metadata.get("role"),
                 passage.getText(),
-                passage.getScore() == null ? 0 : passage.getScore());
+                passage.getScore() == null ? 0 : passage.getScore(),
+                MatchedBy.MEANING);
     }
 
     /** The PDF reader records a file name per page; a bare byte array has none to give. */

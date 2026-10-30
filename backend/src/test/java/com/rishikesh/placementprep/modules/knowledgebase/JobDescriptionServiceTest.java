@@ -4,7 +4,9 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -32,6 +34,9 @@ import org.springframework.ai.vectorstore.SearchRequest;
 import org.springframework.ai.vectorstore.VectorStore;
 
 import com.rishikesh.placementprep.modules.knowledgebase.dto.JobDescriptionMatch;
+import com.rishikesh.placementprep.modules.knowledgebase.dto.JobDescriptionMatch.MatchedBy;
+import com.rishikesh.placementprep.modules.knowledgebase.repository.JobDescriptionChunkRepository;
+import com.rishikesh.placementprep.modules.knowledgebase.repository.JobDescriptionChunkRepository.StoredPassage;
 import com.rishikesh.placementprep.modules.knowledgebase.service.JobDescriptionService;
 
 /**
@@ -46,9 +51,12 @@ class JobDescriptionServiceTest {
     @Mock
     private VectorStore vectorStore;
 
+    @Mock
+    private JobDescriptionChunkRepository chunkRepository;
+
     @Test
     void indexingLabelsEveryPassageWithItsDriveAndReplacesTheOldOnes() throws IOException {
-        JobDescriptionService service = new JobDescriptionService(Optional.of(vectorStore));
+        JobDescriptionService service = new JobDescriptionService(Optional.of(vectorStore), chunkRepository);
 
         int passages = service.index(12L, "Zoho", "SDE", pdfWithText(
                 "Backend Engineer. Build REST APIs in Java with Spring Boot and PostgreSQL."));
@@ -70,7 +78,7 @@ class JobDescriptionServiceTest {
 
     @Test
     void aPdfWithNoTextIndexesNothingAndLeavesTheOldPassagesAlone() throws IOException {
-        JobDescriptionService service = new JobDescriptionService(Optional.of(vectorStore));
+        JobDescriptionService service = new JobDescriptionService(Optional.of(vectorStore), chunkRepository);
 
         assertThat(service.index(12L, "Zoho", "SDE", pdfWithText(""))).isZero();
 
@@ -88,10 +96,47 @@ class JobDescriptionServiceTest {
                 .build();
         when(vectorStore.similaritySearch(any(SearchRequest.class))).thenReturn(List.of(passage));
 
-        List<JobDescriptionMatch> matches = new JobDescriptionService(Optional.of(vectorStore)).search("databases", 5);
+        List<JobDescriptionMatch> matches = new JobDescriptionService(Optional.of(vectorStore), chunkRepository).search("databases", 5);
 
         assertThat(matches).containsExactly(
-                new JobDescriptionMatch(12L, "Zoho", "SDE", "Strong SQL skills are required.", 0.71));
+                new JobDescriptionMatch(12L, "Zoho", "SDE", "Strong SQL skills are required.", 0.71, MatchedBy.MEANING));
+    }
+
+    /**
+     * Reciprocal rank fusion. By meaning the order is A, B; by words it is C, B. B is only
+     * second in each list, yet it comes first overall - 1/62 + 1/62 beats the 1/61 that A
+     * and C each earn from a single list - because both searches agree on it. A and C tie,
+     * and the tie goes to the meaning list.
+     */
+    @Test
+    void aPassageBothSearchesFoundRanksAboveEachSearchesOwnTopPick() {
+        when(vectorStore.similaritySearch(any(SearchRequest.class))).thenReturn(List.of(
+                passage("a", "Java microservices on AWS.", 0.80),
+                passage("b", "Strong SQL skills are required.", 0.60)));
+        when(chunkRepository.searchByKeywords(eq("SQL"), anyInt())).thenReturn(List.of(
+                new StoredPassage("c", 7L, "Infosys", "Analyst", "SQL and Excel reporting."),
+                new StoredPassage("b", 12L, "Zoho", "SDE", "Strong SQL skills are required.")));
+        JobDescriptionService service = new JobDescriptionService(Optional.of(vectorStore), chunkRepository);
+
+        List<JobDescriptionMatch> matches = service.search("SQL", 5);
+
+        assertThat(matches).extracting(JobDescriptionMatch::excerpt).containsExactly(
+                "Strong SQL skills are required.", "Java microservices on AWS.", "SQL and Excel reporting.");
+        assertThat(matches).extracting(JobDescriptionMatch::matchedBy).containsExactly(
+                MatchedBy.BOTH, MatchedBy.MEANING, MatchedBy.KEYWORDS);
+        // B keeps its similarity from the search by meaning; C, found by words alone, has none.
+        assertThat(matches).extracting(JobDescriptionMatch::score).containsExactly(0.60, 0.80, 0.0);
+
+        assertThat(service.search("SQL", 2)).hasSize(2);
+    }
+
+    private static Document passage(String id, String text, double score) {
+        return Document.builder()
+                .id(id)
+                .text(text)
+                .metadata(Map.of("driveId", 12, "companyName", "Zoho", "role", "SDE"))
+                .score(score)
+                .build();
     }
 
     /**
@@ -101,7 +146,7 @@ class JobDescriptionServiceTest {
      */
     @Test
     void withoutAVectorStoreSearchIsRefusedButNothingElseBreaks() {
-        JobDescriptionService service = new JobDescriptionService(Optional.empty());
+        JobDescriptionService service = new JobDescriptionService(Optional.empty(), chunkRepository);
 
         assertThat(service.isEnabled()).isFalse();
         assertThatThrownBy(() -> service.search("databases", 5))

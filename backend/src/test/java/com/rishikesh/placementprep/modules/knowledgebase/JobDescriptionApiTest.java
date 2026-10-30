@@ -1,6 +1,7 @@
 package com.rishikesh.placementprep.modules.knowledgebase;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.hamcrest.Matchers.greaterThan;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
@@ -110,7 +111,9 @@ class JobDescriptionApiTest {
                         .header(HttpHeaders.AUTHORIZATION, bearer(studentToken)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$[0].companyName").value("Razorpay"))
-                .andExpect(jsonPath("$[0].driveId").value(backendDriveId));
+                .andExpect(jsonPath("$[0].driveId").value(backendDriveId))
+                // Not one of the words appears in it, so only the search by meaning found it.
+                .andExpect(jsonPath("$[0].matchedBy").value("MEANING"));
 
         mockMvc.perform(get("/api/job-descriptions/search")
                         .param("q", "someone who makes beautiful user interfaces")
@@ -135,6 +138,21 @@ class JobDescriptionApiTest {
                 .allSatisfy(text -> assertThat(text).doesNotContain("Figma"))
                 .anySatisfy(text -> assertThat(text).contains("Spring Boot"));
         assertThat(jobDescriptionService.passagesFor(999_999L, "required skills", 8)).isEmpty();
+    }
+
+    /** A query sharing words with a passage that is also close in meaning: both halves agree. */
+    @Test
+    void aPassageFoundByMeaningAndByItsWordsIsMarkedBoth() throws Exception {
+        upload(adminToken, backendDriveId, BACKEND_JD).andExpect(status().isCreated());
+        upload(adminToken, designDriveId, DESIGN_JD).andExpect(status().isCreated());
+
+        mockMvc.perform(get("/api/job-descriptions/search")
+                        .param("q", "SQL query tuning")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(studentToken)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].companyName").value("Razorpay"))
+                .andExpect(jsonPath("$[0].matchedBy").value("BOTH"))
+                .andExpect(jsonPath("$[0].score").value(greaterThan(0.2)));
     }
 
     /** The keyword half of search: PostgreSQL's full-text search over the same passages. */
