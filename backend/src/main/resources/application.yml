@@ -14,12 +14,13 @@ spring:
     problemdetails:
       enabled: true
 
-  # Scheduled jobs share one thread by default. Two, so a slow resume review (a model
-  # call can take half a minute) never holds up the deadline reminders, or the reverse.
+  # Scheduled jobs share one thread by default. One each instead - the resume review, the
+  # deadline reminders and the orphaned-file sweep - so a slow review (a model call can
+  # take half a minute, and a run drains the whole queue) never holds up the others.
   task:
     scheduling:
       pool:
-        size: 2
+        size: 3
 
   web:
     error:
